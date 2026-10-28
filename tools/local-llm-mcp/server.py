@@ -67,6 +67,9 @@ REVIEW_SYSTEM = """You are a meticulous code reviewer. Review the diff for real 
 correctness bugs, spec violations, broken edge cases, missing tests for important logic,
 type errors, React state bugs, accessibility problems, and needless complexity.
 Do not report style nits or praise. Every finding must name a concrete failure scenario.
+For each finding, `evidence` must be one line of code copied EXACTLY from the file as it is now
+(not from removed diff lines). Before reporting, re-read that line and confirm the defect is really there:
+check that imports you think are missing are not already present. If unsure, leave it out.
 If there is nothing real, return an empty findings list."""
 
 REVIEW_SCHEMA = {
@@ -81,10 +84,13 @@ REVIEW_SCHEMA = {
                     "line": {"type": "integer"},
                     "severity": {"type": "string", "enum": ["high", "medium", "low"]},
                     "category": {"type": "string"},
+                    "evidence": {"type": "string"},
                     "summary": {"type": "string"},
                     "failure_scenario": {"type": "string"},
                 },
-                "required": ["file", "line", "severity", "category", "summary", "failure_scenario"],
+                "required": [
+                    "file", "line", "severity", "category", "evidence", "summary", "failure_scenario"
+                ],
             },
         }
     },
@@ -273,7 +279,38 @@ def local_review(base: str = "main", focus: str = "", context_files: list[str] |
     data = _chat(REVIEW_SYSTEM, prompt, fmt=REVIEW_SCHEMA, temperature=0.1)
     log = _log("review", prompt, data)
     content = data.get("message", {}).get("content", "")
-    return f"{_stats(data)}\nlog: {log}\n{content}"
+    kept, dropped = _check_evidence(content)
+    return (
+        f"{_stats(data)}\nlog: {log}\n"
+        f"dropped {len(dropped)} finding(s) whose evidence line is not in the file: "
+        f"{'; '.join(dropped) or '-'}\n"
+        + json.dumps({"findings": kept}, indent=2)
+    )
+
+
+def _norm(line: str) -> str:
+    return " ".join(line.split())
+
+
+def _check_evidence(content: str) -> tuple[list[dict], list[str]]:
+    """Keep findings whose quoted evidence line really exists in the named file."""
+    try:
+        findings = json.loads(content).get("findings", [])
+    except json.JSONDecodeError:
+        return [{"file": "-", "summary": "reviewer returned invalid JSON", "raw": content[:500]}], []
+    kept, dropped = [], []
+    for f in findings:
+        try:
+            text = _safe_path(f.get("file", "")).read_text(errors="replace")
+        except (ValueError, OSError):
+            dropped.append(f"{f.get('file')}: {f.get('summary')} (file not found)")
+            continue
+        ev = _norm(f.get("evidence", "").lstrip("+- "))
+        if ev and ev in _norm(text):
+            kept.append(f)
+        else:
+            dropped.append(f"{f.get('file')}:{f.get('line')}: {f.get('summary')}")
+    return kept, dropped
 
 
 @mcp.tool()

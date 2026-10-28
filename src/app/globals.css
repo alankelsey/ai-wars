@@ -1,0 +1,52 @@
+:root {
+  --bg: #000;
+  --fg: #33ff33;
+  --fg-dim: #1a9f1a;
+  --accent: #ccffcc;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  box-sizing: border-box;
+}
+
+* {
+  box-sizing: inherit;
+}
+
+button {
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid var(--fg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button:disabled:hover,
+button:disabled:focus-visible {
+  background: transparent;
+  color: var(--fg);
+}
+
+.splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
