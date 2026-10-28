@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "local-llm": {
+      "command": "uv",
+      "args": ["run", "--script", "tools/local-llm-mcp/server.py"],
+      "env": { "LOCAL_MODEL": "qwen3-coder-next:q4_K_M" }
+    }
+  }
+}
