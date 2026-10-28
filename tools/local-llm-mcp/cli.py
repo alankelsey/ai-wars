@@ -7,6 +7,8 @@
 
   cli.py status
   cli.py code   --task-file spec.md --target src/a.ts --target src/a.test.ts [--context docs/DESIGN.md]
+  cli.py iterate --task-file spec.md --target ... [--rounds 4]   # write, then check+fix loop
+  cli.py fix     --task-file spec.md --target ...                # check+fix loop on existing files
   cli.py review --base main [--focus-file spec.md] [--context docs/DESIGN.md]
   cli.py ask    "question" [--context file]
 """
@@ -18,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import server  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("cmd", choices=["status", "code", "review", "ask"])
+ap.add_argument("cmd", choices=["status", "code", "iterate", "fix", "review", "ask"])
 ap.add_argument("prompt", nargs="?", default="")
 ap.add_argument("--task-file")
 ap.add_argument("--focus-file")
@@ -26,6 +28,8 @@ ap.add_argument("--target", action="append", default=[])
 ap.add_argument("--context", action="append", default=[])
 ap.add_argument("--base", default="main")
 ap.add_argument("--allow-other-files", action="store_true")
+ap.add_argument("--rounds", type=int, default=4)
+ap.add_argument("--test-filter", action="append", default=[])
 a = ap.parse_args()
 
 if a.cmd == "status":
@@ -33,6 +37,9 @@ if a.cmd == "status":
 elif a.cmd == "code":
     task = Path(a.task_file).read_text() if a.task_file else a.prompt
     print(server.local_code(task, a.target, a.context, a.allow_other_files))
+elif a.cmd in ("iterate", "fix"):
+    task = Path(a.task_file).read_text() if a.task_file else a.prompt
+    print(server.local_iterate(task, a.target, a.context, a.rounds, None, a.test_filter, a.cmd == "fix"))
 elif a.cmd == "review":
     focus = Path(a.focus_file).read_text() if a.focus_file else a.prompt
     print(server.local_review(a.base, focus, a.context))
