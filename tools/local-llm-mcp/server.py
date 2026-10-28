@@ -77,6 +77,7 @@ REVIEW_SCHEMA = {
     "properties": {
         "findings": {
             "type": "array",
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "properties": {
@@ -84,9 +85,9 @@ REVIEW_SCHEMA = {
                     "line": {"type": "integer"},
                     "severity": {"type": "string", "enum": ["high", "medium", "low"]},
                     "category": {"type": "string"},
-                    "evidence": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "failure_scenario": {"type": "string"},
+                    "evidence": {"type": "string", "maxLength": 300},
+                    "summary": {"type": "string", "maxLength": 200},
+                    "failure_scenario": {"type": "string", "maxLength": 400},
                 },
                 "required": [
                     "file", "line", "severity", "category", "evidence", "summary", "failure_scenario"
@@ -129,16 +130,24 @@ def _conventions() -> str:
     return p.read_text() if p.exists() else ""
 
 
-def _chat(system: str, user: str, *, fmt: dict | None = None, temperature: float = 0.3) -> dict:
+def _chat(
+    system: str,
+    user: str,
+    *,
+    fmt: dict | None = None,
+    temperature: float = 0.3,
+    num_predict: int = NUM_PREDICT,
+) -> dict:
     body = {
         "model": MODEL,
         "stream": False,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "options": {
             "num_ctx": NUM_CTX,
-            "num_predict": NUM_PREDICT,
+            "num_predict": num_predict,
             "temperature": temperature,
             "top_p": 0.8,
+            "repeat_penalty": 1.1,
         },
         "keep_alive": "30m",
     }
@@ -276,16 +285,55 @@ def local_review(base: str = "main", focus: str = "", context_files: list[str] |
         ]
         if s
     )
-    data = _chat(REVIEW_SYSTEM, prompt, fmt=REVIEW_SCHEMA, temperature=0.1)
+    data = _chat(REVIEW_SYSTEM, prompt, fmt=REVIEW_SCHEMA, temperature=0.2, num_predict=4096)
     log = _log("review", prompt, data)
     content = data.get("message", {}).get("content", "")
     kept, dropped = _check_evidence(content)
+    confirmed, rejected = _verify_findings(kept, focus)
     return (
         f"{_stats(data)}\nlog: {log}\n"
         f"dropped {len(dropped)} finding(s) whose evidence line is not in the file: "
         f"{'; '.join(dropped) or '-'}\n"
-        + json.dumps({"findings": kept}, indent=2)
+        f"rejected {len(rejected)} finding(s) on re-check: {'; '.join(rejected) or '-'}\n"
+        + json.dumps({"findings": confirmed}, indent=2)
     )
+
+
+VERIFY_SYSTEM = """You check one code-review claim against the real file. Most review claims are wrong:
+they say an import is missing when it is present, or misread the spec. Read the whole file carefully,
+trace the code path in the claim, and decide whether the defect really exists in the code as written.
+Answer valid=true only if you can point to the exact behaviour that fails."""
+
+VERIFY_SCHEMA = {
+    "type": "object",
+    "properties": {"valid": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 400}},
+    "required": ["reason", "valid"],
+}
+
+
+def _verify_findings(findings: list[dict], focus: str) -> tuple[list[dict], list[str]]:
+    """Second pass: re-check each finding against the full file it cites."""
+    confirmed, rejected = [], []
+    for f in findings:
+        if "raw" in f:
+            confirmed.append(f)
+            continue
+        file_text = _read_files([f["file"]])
+        claim = {k: f.get(k) for k in ("line", "evidence", "summary", "failure_scenario")}
+        user = (
+            (f"<spec>\n{focus}\n</spec>\n\n" if focus else "")
+            + f"{file_text}\n\n<claim>\n{json.dumps(claim, indent=2)}\n</claim>"
+        )
+        data = _chat(VERIFY_SYSTEM, user, fmt=VERIFY_SCHEMA, temperature=0.1, num_predict=1024)
+        try:
+            verdict = json.loads(data.get("message", {}).get("content", ""))
+        except json.JSONDecodeError:
+            verdict = {"valid": True, "reason": "verifier returned invalid JSON; kept"}
+        if verdict.get("valid"):
+            confirmed.append({**f, "verifier": verdict.get("reason", "")})
+        else:
+            rejected.append(f"{f['file']}:{f.get('line')}: {f.get('summary')} — {verdict.get('reason', '')}")
+    return confirmed, rejected
 
 
 def _norm(line: str) -> str:
