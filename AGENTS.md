@@ -19,6 +19,10 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 - Money is integer dollars. Round with `Math.ceil` where the spec says "round up", otherwise `Math.round`.
 - Console look: black background, green monospace text. Keep CSS in CSS modules or `globals.css`.
 - Every logic function gets unit tests that cover edge cases (zero money, zero stock, last turn).
+- Tests: build fixtures in one step (`const base = makeState(); const state = { ...base, market: {...} }`),
+  never reference a variable inside its own initializer. No `any` in tests either; type fakes against the
+  real interfaces. Import every symbol you use (CONFIG, types) explicitly.
+- `as const` arrays are readonly: type them `readonly EventKind[]` instead of casting.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

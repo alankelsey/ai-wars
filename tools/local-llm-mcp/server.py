@@ -61,7 +61,9 @@ After all files, output one block:
 <notes>
 Short bullet list: what you did, assumptions, anything the reviewer should check.
 </notes>
-Output nothing outside <file> and <notes> blocks. Do not wrap file content in markdown fences."""
+Output nothing outside <file> and <notes> blocks. Do not wrap file content in markdown fences.
+Write each file exactly once, then stop. Never output a second version of a file.
+Only write the files listed as writable; other files are read-only context."""
 
 REVIEW_SYSTEM = """You are a meticulous code reviewer. Review the diff for real defects:
 correctness bugs, spec violations, broken edge cases, missing tests for important logic,
@@ -220,7 +222,10 @@ def local_code(
 
     written, skipped = [], []
     allowed = {str(_safe_path(t)) for t in target_files}
-    for rel, body in FILE_RE.findall(content):
+    blocks = FILE_RE.findall(content)
+    seen = [rel for rel, _ in blocks]
+    dupes = sorted({r for r in seen if seen.count(r) > 1})
+    for rel, body in blocks:
         m = FENCE_RE.match(body.strip())
         if m:
             body = m.group(1)
@@ -246,11 +251,67 @@ def local_code(
         lines.append("not written: " + ", ".join(missing))
     if skipped:
         lines.append("skipped: " + "; ".join(skipped))
+    if dupes:
+        lines.append("WARNING model emitted these files more than once (last copy kept): " + ", ".join(dupes))
     if not written:
         lines.append("raw output head: " + content[:600])
     lines.append("notes: " + (notes.group(1).strip() if notes else "(none)"))
     lines.append(f"log: {log}")
     return "\n".join(lines)
+
+
+def _run_checks(checks: list[str], test_filter: list[str]) -> tuple[bool, str]:
+    """Run npm scripts; return (all_passed, trimmed error output of failing ones)."""
+    failures = []
+    for name in checks:
+        cmd = ["npm", "run", "-s", name]
+        if name == "test" and test_filter:
+            cmd += ["--", *test_filter]
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=600)
+        out = (r.stdout + r.stderr).strip()
+        # lint warnings count as failures so the model cleans them up too
+        failed = r.returncode != 0 or (name == "lint" and "warning" in out)
+        if failed:
+            lines = [l for l in out.splitlines() if l.strip() and "node_modules" not in l]
+            failures.append(f"### npm run {name}\n" + "\n".join(lines[-60:]))
+    return not failures, "\n\n".join(failures)
+
+
+@mcp.tool()
+def local_iterate(
+    task: str,
+    target_files: list[str],
+    context_files: list[str] | None = None,
+    max_rounds: int = 4,
+    checks: list[str] | None = None,
+    test_filter: list[str] | None = None,
+    skip_first_write: bool = False,
+) -> str:
+    """Write files with the local LLM, then loop: run checks, feed failures back, fix — until green.
+
+    checks: npm scripts to run (default lint, typecheck, test). test_filter: vitest path filters.
+    skip_first_write: True to start by checking the files already on disk (fix-only mode).
+    Returns a per-round log and whether everything passed.
+    """
+    checks = checks or ["lint", "typecheck", "test"]
+    test_filter = test_filter or []
+    log = []
+    if not skip_first_write:
+        log.append("round 0 (write):\n" + local_code(task, target_files, context_files))
+    for rnd in range(1, max_rounds + 1):
+        ok, errors = _run_checks(checks, test_filter)
+        if ok:
+            log.append(f"round {rnd}: all checks pass ({', '.join(checks)})")
+            return "PASSED\n\n" + "\n\n".join(log)
+        fix_task = (
+            f"{task}\n\n---\nThe files you wrote fail these checks. Fix the root cause in the target files "
+            f"(do not weaken or delete tests to make them pass unless the test itself contradicts the spec; "
+            f"if so, say so in <notes>). Add any missing imports.\n\n{errors}"
+        )
+        log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n" + local_code(fix_task, target_files, context_files))
+    ok, errors = _run_checks(checks, test_filter)
+    status = "PASSED" if ok else "STILL FAILING after max_rounds"
+    return f"{status}\n\n" + "\n\n".join(log) + ("" if ok else f"\n\nremaining:\n{errors}")
 
 
 @mcp.tool()
