@@ -1,3 +1,4 @@
+// Events: bad/good market disruptions (pallets missing, sanctions, hype spikes, etc.).
 import type { GameState, EventKind, GameEvent } from "./types";
 import type { Rng } from "./rng";
 import { getDifficulty } from "./data/difficulty";

@@ -1,3 +1,4 @@
+// Splash screen: company, interest and difficulty pickers, then Start New Game.
 "use client";
 
 import { useState, type FormEvent, type JSX } from "react";

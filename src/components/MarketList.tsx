@@ -1,3 +1,4 @@
+// Market list component: shows all chips, prices, held quantities, and trade buttons.
 import type { JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { GameState } from "@/game/types";

@@ -1,3 +1,4 @@
+// React reducer: app state (splash vs game) and all game actions.
 import type { GameState } from "@/game/types";
 import { newGame, buy, sell, travel, dismissEvent } from "@/game/game";
 import { attemptTokenReset, acceptDowntime, dismissRisk } from "@/game/risks";

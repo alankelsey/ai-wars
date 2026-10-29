@@ -1,3 +1,4 @@
+// Data center: one deposit or withdrawal per day, cash or chips, safe from risks.
 import type { GameState } from "./types";
 
 export function canUseDataCenter(state: GameState): boolean {

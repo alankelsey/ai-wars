@@ -20,6 +20,8 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 
 ## Style
 - Small named functions, explicit types on exports, no `any`, no default exports except Next.js pages/layouts.
+- Every file in `src/` starts with a one-line `//` comment saying what it does (after `"use client";` if present).
+  It feeds the code map the local model sees; CI checks it (`npm run codemap:check`). Update it when the file's job changes.
 - Money is integer dollars. Round with `Math.ceil` where the spec says "round up", otherwise `Math.round`.
 - Console look: black background, green monospace text. Keep CSS in CSS modules or `globals.css`.
 - Every logic function gets unit tests that cover edge cases (zero money, zero stock, last turn).

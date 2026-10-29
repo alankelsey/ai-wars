@@ -1,3 +1,4 @@
+// Difficulty definitions: event chances, fines, pallet loss ranges per difficulty level.
 import type { Difficulty } from "../types";
 
 export interface DifficultyDef {

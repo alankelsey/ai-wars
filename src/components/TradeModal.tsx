@@ -1,3 +1,4 @@
+// Trade modal: buy/sell details, quantity picker, and confirm button for a single chip.
 import { useState, type JSX } from "react";
 import { Modal } from "./Modal";
 import { QtyPicker } from "./QtyPicker";

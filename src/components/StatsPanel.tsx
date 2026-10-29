@@ -1,3 +1,4 @@
+// Stats panel: city, day progress, cash/data center/debt/net worth meters and uptime/racks.
 import type { JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { GameState } from "@/game/types";

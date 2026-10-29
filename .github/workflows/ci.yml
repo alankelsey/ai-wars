@@ -30,4 +30,6 @@ jobs:
 
       - run: npm run test:tools
 
+      - run: npm run codemap:check
+
       - run: npm run build

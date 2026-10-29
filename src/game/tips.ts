@@ -1,3 +1,4 @@
+// Tips: chance to generate a market tip with price adjustment and message template.
 import type { GameState, MarketEntry, MarketTip } from "./types";
 import type { Rng } from "./rng";
 import { CONFIG } from "./data/config";

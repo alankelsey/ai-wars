@@ -22,6 +22,23 @@ The items below target those failure modes first.
   failures (Sonnet, `LOCAL_ESCALATE_BUDGET_USD` cap, edits limited to `target_files`), re-checks, and logs an
   `escalate` metric row with cost. `LOCAL_ESCALATE=0` turns it off. Tests: `npm run test:tools`.
 
+## Done since (PR 24)
+- **Parser fix (was #0):** a closing `</file>` / `</edit>` only counts at line start and when followed by the next
+  block or the end of the reply (`guards.py`), so files that contain the tags no longer get cut short. The bug hit
+  again while building this: the first write of `guards.py` stopped at its own regex.
+- **Shrink guard:** a whole-file write that would leave an existing 20+ line file under half its size is refused
+  (`REFUSED:` in the report) and the model is told to use edits.
+- **Edits must apply (was #2):** a round fails when an edit's search text didn't match or a write was refused, even if
+  the checks are green.
+- **Anchors (part of #0b):** `local_iterate(anchors=["path: exact existing line", ...])` fails the round while any named
+  spot is unchanged (diff within 3 lines). Specs list their anchors; see the template in the ship-pr skill.
+  Not done yet: splitting a multi-edit task into one call per anchor automatically.
+- **Code map (most of #5):** every call sends `<codemap>`: one line per `src/` file with its header comment and
+  exports, generated live by `codemap.py` (never stale). `npm run codemap` prints it; CI runs `codemap:check`, which
+  fails when a source file has no one-line header comment. Not done yet: rejecting unresolved imports before checks.
+- **Leaner conventions:** the model gets AGENTS.md without the Workflow section, the spec pointer and the Next.js
+  block (it can't read `node_modules` docs), and none of it for Python-only tasks.
+
 ## Model comparison (2026-10-29)
 Same task (multi-edit `server.py`, pre-PR-17 file, 16 pytest contract tests, 4 fix rounds, no hand-off):
 

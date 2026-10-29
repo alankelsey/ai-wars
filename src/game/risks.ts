@@ -1,3 +1,4 @@
+// Uptime risks: chance to trigger, token resets with cost and success rate.
 import type { GameState, UptimeRisk } from "./types";
 import { createRng, type Rng } from "./rng";
 import { getDifficulty } from "./data/difficulty";

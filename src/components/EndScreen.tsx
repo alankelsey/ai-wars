@@ -1,3 +1,4 @@
+// End game screen: summary, net worth, and high scores table.
 import type { JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { GameState } from "@/game/types";

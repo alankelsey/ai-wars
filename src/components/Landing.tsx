@@ -1,3 +1,4 @@
+// Landing page: list of prototype mocks with status and play links.
 import Link from "next/link";
 import styles from "./Landing.module.css";
 import { MOCKS } from "@/site/mocks";

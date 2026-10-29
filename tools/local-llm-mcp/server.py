@@ -22,6 +22,8 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from codemap import build_codemap
+from guards import EDIT_RE, FILE_RE, round_problems, shrink_refusal, trim_conventions, untouched_anchors
 from escalation import (
     ESCALATE,
     ESCALATE_BUDGET_USD,
@@ -195,9 +197,10 @@ def _read_files(paths: list[str]) -> str:
     return "\n\n".join(chunks)
 
 
-def _conventions() -> str:
+def _conventions(target_files: list[str] | None = None) -> str:
+    """AGENTS.md minus what the local model can't act on; None keeps the TypeScript rules (review)."""
     p = ROOT / "AGENTS.md"
-    return p.read_text() if p.exists() else ""
+    return trim_conventions(p.read_text(), target_files or ["review.ts"]) if p.exists() else ""
 
 
 def _chat(
@@ -247,7 +250,7 @@ def _stats(data: dict) -> str:
     eval_s = data.get("eval_duration", 0) / 1e9 or 1
     truncated = " TRUNCATED (hit num_predict)" if data.get("done_reason") == "length" else ""
     return (
-        f"model={s['model']} wall={data['_wall_s']}s in={in_tok}tok out={out_tok}tok "
+        f"model={s['model']} wall={data.get('_wall_s', 0)}s in={in_tok}tok out={out_tok}tok "
         f"({out_tok / eval_s:.1f} tok/s){truncated}"
     )
 
@@ -270,10 +273,6 @@ def _metric(kind: str, data: dict, extra: dict | None = None) -> None:
         f.write(json.dumps(row) + "\n")
 
 
-FILE_RE = re.compile(r'<file path="([^"]+)">\n?(.*?)\n?</file>', re.S)
-EDIT_RE = re.compile(
-    r'<edit path="([^"]+)">\s*<search>\n?(.*?)\n?</search>\s*<replace>\n?(.*?)\n?</replace>\s*</edit>', re.S
-)
 NEED_RE = re.compile(r'<need path="([^"]+)"\s*/>')
 NOTES_RE = re.compile(r"<notes>(.*?)</notes>", re.S)
 FENCE_RE = re.compile(r"^```[\w-]*\n(.*?)\n```$", re.S)
@@ -328,6 +327,8 @@ def local_code(
         lines.append("edited: " + ", ".join(result["edited"]))
     if result["edit_failed"]:
         lines.append("EDITS FAILED (search text not found once): " + "; ".join(result["edit_failed"]))
+    if result["refused"]:
+        lines.append("REFUSED: " + "; ".join(result["refused"]))
     touched = {w.split(" ")[0] for w in result["written"] + result["edited"]}
     missing = [t for t in target_files if t not in touched]
     if missing:
@@ -373,9 +374,10 @@ def _auto_context(target_files: list[str], context_files: list[str]) -> list[str
 
 
 def _code_prompt(task: str, target_files: list[str], context_files: list[str]) -> str:
-    conventions = _conventions()
+    conventions = _conventions(target_files)
     parts = [
         f"<conventions>\n{conventions}\n</conventions>" if conventions else "",
+        f"<codemap>\n{build_codemap(ROOT)}</codemap>",
         f"<task>\n{task}\n</task>",
         "Files you may write: " + ", ".join(target_files),
         "<read_only_context>\n" + _read_files(context_files) + "\n</read_only_context>" if context_files else "",
@@ -386,7 +388,9 @@ def _code_prompt(task: str, target_files: list[str], context_files: list[str]) -
 
 def _apply_output(content: str, target_files: list[str], allow_other_files: bool) -> dict[str, list[str]]:
     """Write <file> blocks and apply <edit> blocks; return what happened, by category."""
-    res: dict[str, list[str]] = {"written": [], "edited": [], "edit_failed": [], "skipped": [], "dupes": []}
+    res: dict[str, list[str]] = {
+        "written": [], "edited": [], "edit_failed": [], "refused": [], "skipped": [], "dupes": []
+    }
     allowed = {str(_safe_path(t)) for t in target_files}
 
     def check(rel: str) -> Path | None:
@@ -410,8 +414,13 @@ def _apply_output(content: str, target_files: list[str], allow_other_files: bool
         p = check(rel)
         if p is None:
             continue
+        new_text = body.rstrip("\n") + "\n"
+        refusal = shrink_refusal(rel, p.read_text(errors="replace"), new_text) if p.is_file() else None
+        if refusal:
+            res["refused"].append(refusal)
+            continue
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(body.rstrip("\n") + "\n")
+        p.write_text(new_text)
         res["written"].append(f"{rel} ({body.count(chr(10)) + 1} lines)")
 
     edit_counts: dict[str, int] = {}
@@ -505,6 +514,34 @@ def _git_changed() -> set[str]:
     return changed
 
 
+def _anchor_texts(anchors: list[str]) -> dict[str, str]:
+    """Current text of every file named in anchors ("" when missing)."""
+    out: dict[str, str] = {}
+    for a in anchors:
+        rel = a.split(": ", 1)[0].strip()
+        p = _safe_path(rel)
+        out[rel] = p.read_text(errors="replace") if p.is_file() else ""
+    return out
+
+
+def _tooling_problems(report: str, anchors: list[str], originals: dict[str, str]) -> str:
+    """Failed edits, refused writes and untouched anchors as check output ("" if none)."""
+    lines = [x for x in round_problems(report).split("\n") if x]
+    lines += [f"error: {m}" for m in untouched_anchors(originals, _anchor_texts(anchors), anchors)]
+    return "### tooling\n" + "\n".join(lines) if lines else ""
+
+
+def _checks_with_tooling(
+    checks: list[str], test_filter: list[str], report: str, anchors: list[str], originals: dict[str, str]
+) -> tuple[bool, str]:
+    """_run_checks, but a round also fails on tooling problems (listed first)."""
+    ok, errors = _run_checks(checks, test_filter)
+    tooling = _tooling_problems(report, anchors, originals)
+    if not tooling:
+        return ok, errors
+    return False, tooling + ("\n\n" + errors if errors else "")
+
+
 def _escalate(task: str, target_files: list[str], errors: str) -> dict:
     """Hand the remaining failures to Claude Code and parse its response."""
     before = _git_changed()
@@ -532,27 +569,34 @@ def local_iterate(
     checks: list[str] | None = None,
     test_filter: list[str] | None = None,
     skip_first_write: bool = False,
+    anchors: list[str] | None = None,
     escalate: bool = True,
 ) -> str:
     """Write files with the local LLM, then loop: run checks, feed failures back, fix — until green.
 
     checks: npm scripts to run (default lint, typecheck, test). test_filter: vitest path filters.
     skip_first_write: True to start by checking the files already on disk (fix-only mode).
+    anchors: "path: exact existing line" spots the task must change; a round fails while one is untouched,
+    and so does a round whose edits failed to apply or whose whole-file write was refused.
     escalate: on STUCK / STILL FAILING, hand the remaining failures to Claude Code (claude -p) once, then re-check.
     Each fix round sees the earlier rounds' errors and notes. If the same failure comes back twice in a row,
     the loop stops early with STUCK so Claude can step in instead of burning rounds.
     """
     checks = checks or ["lint", "typecheck", "test"]
     test_filter = test_filter or []
+    anchors = anchors or []
+    originals = _anchor_texts(anchors)
+    report = ""
     log: list[str] = []
     history: list[str] = []
     prev_sig: frozenset[str] | None = None
     t0 = time.time()
     if not skip_first_write:
-        log.append("round 0 (write):\n" + local_code(task, target_files, context_files))
+        report = local_code(task, target_files, context_files)
+        log.append("round 0 (write):\n" + report)
     status, errors = "STILL FAILING after max_rounds", ""
     for rnd in range(1, max_rounds + 1):
-        ok, errors = _run_checks(checks, test_filter)
+        ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
         if ok:
             status = "PASSED"
             log.append(f"round {rnd}: all checks pass ({', '.join(checks)})")
@@ -575,16 +619,17 @@ def local_iterate(
             f"in <notes>). Add any missing imports.{earlier}\n\nCurrent failures (round {rnd}):\n{errors}"
         )
         out = local_code(fix_task, target_files, context_files)
+        report = out
         notes = out.split("notes: ", 1)[-1].split("\nlog: ")[0][:400]
         history.append(f"- round {rnd}: {len(sig)} failing lines, e.g. {sorted(sig)[:3]}; your notes: {notes}")
         log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n{out}")
     else:
-        ok, errors = _run_checks(checks, test_filter)
+        ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
         if ok:
             status = "PASSED"
     if not status.startswith("PASSED") and escalate and ESCALATE:
         esc = _escalate(task, target_files, errors)
-        ok, errors = _run_checks(checks, test_filter)
+        ok, errors = _checks_with_tooling(checks, test_filter, "", anchors, originals)
         status = "PASSED (escalated to Claude)" if ok else "STILL FAILING after escalation to Claude"
         log.append(
             f"escalation: model={ESCALATE_MODEL} cost=${esc['cost_usd']:.2f} turns={esc['turns']} "

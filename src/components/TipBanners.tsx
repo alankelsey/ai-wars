@@ -1,3 +1,4 @@
+// Tip banners: dismissable market tips for the current day.
 import { useState, type JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { MarketTip } from "@/game/types";

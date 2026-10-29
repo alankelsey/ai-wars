@@ -1,3 +1,4 @@
+// Test utilities: fixtures (makeState), fake RNG, helper functions for game tests.
 import type { GameState } from "./types";
 import type { Rng } from "./rng";
 
