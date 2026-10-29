@@ -46,14 +46,15 @@ web_up() {
     echo "next dev already running"; return
   fi
   [[ -d node_modules ]] || npm install
-  nohup npm run dev -- -H 0.0.0.0 >"$RUN/next.log" 2>&1 & echo $! >"$RUN/next.pid"
+  # own process group (setsid) so web_down can stop npm, next dev and next-server together
+  DEV_ORIGINS=$(hostname -I | xargs | tr " " ",") setsid nohup npm run dev -- -H 0.0.0.0 >"$RUN/next.log" 2>&1 &
+  echo $! >"$RUN/next.pid"
   echo "next dev: http://$(hostname -I | awk '{print $1}'):3000  (log: .dev/next.log)"
 }
 
 web_down() {
   if [[ -f $RUN/next.pid ]]; then
-    pkill -P "$(cat "$RUN/next.pid")" 2>/dev/null || true
-    kill "$(cat "$RUN/next.pid")" 2>/dev/null || true
+    kill -- "-$(cat "$RUN/next.pid")" 2>/dev/null || true
     rm -f "$RUN/next.pid"; echo "next dev stopped"
   fi
 }
