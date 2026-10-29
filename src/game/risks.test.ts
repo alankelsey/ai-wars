@@ -3,6 +3,9 @@ import type { GameState, UptimeRisk } from "./types";
 import { createRng } from "./rng";
 import { rollRisk, tokenResetCost, attemptTokenReset, acceptDowntime, dismissRisk } from "./risks";
 import { CONFIG } from "./data/config";
+import { getDifficulty } from "./data/difficulty";
+
+const HARD = getDifficulty("hard");
 import { RISKS } from "./data/risks";
 import { makeState, FakeRng, pickValue } from "./testUtils";
 
@@ -34,7 +37,7 @@ describe("rollRisk", () => {
 
   it("returns the same state when the chance roll fails", () => {
     const s = makeState();
-    expect(rollRisk(s, new FakeRng([CONFIG.riskChance]))).toBe(s);
+    expect(rollRisk(s, new FakeRng([HARD.riskChance]))).toBe(s);
   });
 
   it("picks kind then downtime and fills the message", () => {

@@ -49,6 +49,7 @@ export function makeState(overrides?: Partial<GameState>): GameState {
     rngState: 12345,
     company: "TestCorp",
     interestEnabled: false,
+    difficulty: "hard" as const,
     day: 1,
     cityIds: CITY_IDS,
     currentCityId: CITY_IDS[0],

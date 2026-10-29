@@ -4,10 +4,14 @@ import type { EventKind, GameState } from "./types";
 import { rollEvent } from "./events";
 import { makeState, CHIP_IDS, fill, FakeRng, pickValue } from "./testUtils";
 import { CONFIG } from "./data/config";
+import { getDifficulty } from "./data/difficulty";
+import { formatMoney } from "./format";
 import { getChip } from "./data/chips";
 import { COMPANIES } from "./data/companies";
 import { newGame, buy, travel, dismissEvent } from "./game";
 import { maxBuy } from "./market";
+
+const HARD = getDifficulty("hard");
 
 const BAD_KINDS: readonly EventKind[] = ["palletsMissing", "competitorVram", "quantization", "sanctions", "customs"];
 const GOOD_KINDS: readonly EventKind[] = ["fellOffTruck", "hypeSpike", "fireSale"];
@@ -61,33 +65,51 @@ describe("rollEvent", () => {
     expect(result.market).toEqual(base.market);
   });
 
-  it("handles palletsMissing with inventory", () => {
-    const base = marketState({ inventory: fill(CHIP_IDS, 0) });
-    // Give only CHIP_IDS[0] (shreds) 10 pallets
-    base.inventory[CHIP_IDS[0]] = 10;
-
+  it("handles palletsMissing with one chip type held", () => {
+    const base = marketState({ inventory: { ...fill(CHIP_IDS, 0), [CHIP_IDS[0]]: 10 } });
     const before = structuredClone(base);
-    const lossPct = floatAt(CONFIG.palletLossPctMin, CONFIG.palletLossPctMax, 0.5);
-    const held = base.inventory[CHIP_IDS[0]];
-    const lost = Math.min(held, Math.max(1, Math.ceil(held * lossPct)));
-    // Ensure at least 1 and not more than held
-    const finalLost = Math.max(1, Math.min(lost, held));
-    const expectedInventory = held - finalLost;
+    const pct = floatAt(HARD.palletLossPctMin, HARD.palletLossPctMax, 0.5); // one type: no extra
+    const lost = Math.min(10, Math.max(1, Math.ceil(10 * pct)));
 
-    // bad chance yes (0 < 0.15), pick index 0 of [palletsMissing, ...4 others], loss pct f=0.5 -> lossPct = 0.3
-    const rng = new FakeRng(badQueue("palletsMissing", true, 0.5));
-    const result = rollEvent(base, rng);
+    const result = rollEvent(base, new FakeRng(badQueue("palletsMissing", true, 0.5)));
 
     expect(result.pendingEvent?.kind).toBe("palletsMissing");
     expect(result.pendingEvent?.good).toBe(false);
-    expect(result.inventory[CHIP_IDS[0]]).toBe(expectedInventory);
+    expect(result.inventory[CHIP_IDS[0]]).toBe(10 - lost);
     expect(result.cash).toBe(before.cash);
     expect(result.market).toEqual(before.market);
-    expect(result.chipModifier).toEqual(before.chipModifier);
+    expect(result.pendingEvent?.message).toBe(
+      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${lost} ${getChip(CHIP_IDS[0]).name}.`,
+    );
+  });
 
-    const chipName = getChip(CHIP_IDS[0]).name;
-    expect(result.pendingEvent?.message).toContain(chipName);
-    expect(result.pendingEvent?.message).toContain(`${finalLost} pallet(s)`);
+  it("palletsMissing hits every held chip type, with a bigger % for each extra type", () => {
+    const held = { [CHIP_IDS[0]]: 10, [CHIP_IDS[3]]: 40, [CHIP_IDS[7]]: 1 };
+    const base = marketState({ inventory: { ...fill(CHIP_IDS, 0), ...held } });
+    const pct = Math.min(
+      HARD.palletLossPctCap,
+      floatAt(HARD.palletLossPctMin, HARD.palletLossPctMax, 0.5) + HARD.palletLossPerExtraType * 2,
+    );
+    const lost = (n: number): number => Math.min(n, Math.max(1, Math.ceil(n * pct)));
+
+    const result = rollEvent(base, new FakeRng(badQueue("palletsMissing", true, 0.5)));
+
+    expect(result.inventory[CHIP_IDS[0]]).toBe(10 - lost(10));
+    expect(result.inventory[CHIP_IDS[3]]).toBe(40 - lost(40));
+    expect(result.inventory[CHIP_IDS[7]]).toBe(0); // 1 held: at least one pallet goes
+    expect(result.inventory[CHIP_IDS[1]]).toBe(0);
+    const parts = [0, 3, 7].map((i) => `${lost(held[CHIP_IDS[i]])} ${getChip(CHIP_IDS[i]).name}`).join(", ");
+    expect(result.pendingEvent?.message).toBe(
+      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts}.`,
+    );
+  });
+
+  it("palletsMissing loss % is capped", () => {
+    const inventory = Object.fromEntries(CHIP_IDS.map((id) => [id, 100])) as Record<string, number>;
+    const result = rollEvent(marketState({ inventory }), new FakeRng(badQueue("palletsMissing", true, 0.99)));
+    const expected = 100 - Math.ceil(100 * HARD.palletLossPctCap);
+    for (const id of CHIP_IDS) expect(result.inventory[id]).toBe(expected);
+    expect(result.pendingEvent?.message).toContain(`You lost ${Math.round(HARD.palletLossPctCap * 100)}% of your stock`);
   });
 
   it("handles palletsMissing with empty inventory (falls back to competitorVram)", () => {
@@ -161,7 +183,7 @@ describe("rollEvent", () => {
     const before = structuredClone(base);
 
     const chipIndex = 1;
-    const finePct = floatAt(CONFIG.finePctMin, CONFIG.finePctMax, 0.5);
+    const finePct = floatAt(HARD.finePctMin, HARD.finePctMax, 0.5);
     const expectedFine = Math.min(base.cash, Math.ceil(base.cash * finePct));
     const expectedCash = base.cash - expectedFine;
 
@@ -181,7 +203,7 @@ describe("rollEvent", () => {
 
     const chipName = getChip(CHIP_IDS[chipIndex]).name;
     expect(result.pendingEvent?.message).toContain(chipName);
-    expect(result.pendingEvent?.message).toContain(`$${expectedFine}`);
+    expect(result.pendingEvent?.message).toContain(formatMoney(expectedFine));
   });
 
   it("handles sanctions when cash is zero", () => {
@@ -208,7 +230,7 @@ describe("rollEvent", () => {
 
     expect(result.pendingEvent?.kind).toBe("sanctions");
     // fine = ceil(1 * (0.0001 + 0.99*0.0599)) = ceil(0.0596) = 1
-    const finePct = floatAt(CONFIG.finePctMin, CONFIG.finePctMax, 0.99);
+    const finePct = floatAt(HARD.finePctMin, HARD.finePctMax, 0.99);
     const expectedFine = Math.min(base.cash, Math.ceil(base.cash * finePct));
     expect(result.cash).toBe(base.cash - expectedFine);
   });
@@ -217,7 +239,7 @@ describe("rollEvent", () => {
     const base = marketState();
     const before = structuredClone(base);
 
-    const finePct = floatAt(CONFIG.finePctMin, CONFIG.finePctMax, 0.5);
+    const finePct = floatAt(HARD.finePctMin, HARD.finePctMax, 0.5);
     const expectedFine = Math.min(base.cash, Math.ceil(base.cash * finePct));
     const expectedCash = base.cash - expectedFine;
 
@@ -231,7 +253,7 @@ describe("rollEvent", () => {
     expect(result.inventory).toEqual(before.inventory);
     expect(result.market).toEqual(before.market);
 
-    expect(result.pendingEvent?.message).toContain(`$${expectedFine}`);
+    expect(result.pendingEvent?.message).toContain(formatMoney(expectedFine));
   });
 
   it("handles customs when cash is zero", () => {
@@ -258,7 +280,7 @@ describe("rollEvent", () => {
 
     expect(result.pendingEvent?.kind).toBe("customs");
     // fine = ceil(1 * (0.0001 + 0.99*0.0599)) = ceil(0.0596) = 1
-    const finePct = floatAt(CONFIG.finePctMin, CONFIG.finePctMax, 0.99);
+    const finePct = floatAt(HARD.finePctMin, HARD.finePctMax, 0.99);
     const expectedFine = Math.min(base.cash, Math.ceil(base.cash * finePct));
     expect(result.cash).toBe(base.cash - expectedFine);
   });
@@ -271,7 +293,7 @@ describe("rollEvent", () => {
     }
 
     const chipIndex = 3;
-    const n = CONFIG.truckMax;
+    const n = HARD.truckMax;
 
     // good chance yes (0.05 < 0.10), pick chip index 3, n=truckMax (int(1,5) with v=1 -> min + floor(1*5)=1+5=6? No: range is max-min+1 = 5-1+1=5)
     // int(1,5): range=5. want value 5 => idx such that floor(v*5)=4 => v=0.9
@@ -293,7 +315,7 @@ describe("rollEvent", () => {
     const before = structuredClone(base);
 
     const chipIndex = 4;
-    const f = floatAt(CONFIG.hypeMin, CONFIG.hypeMax, 0.5);
+    const f = floatAt(HARD.hypeMin, HARD.hypeMax, 0.5);
     const expectedPrice = Math.max(1, Math.round(1000 * f));
 
     // good chance yes (0.05 < 0.10), pick chip index 4, f=3 -> price 3000
@@ -354,7 +376,7 @@ describe("rollEvent", () => {
   });
 
   describe("statistical test", () => {
-    it("bad-event share within 0.15 ± 0.01 over many rolls", () => {
+    it("bad-event share within the Hard rate ± 0.01 over many rolls", () => {
       const base = marketState({ inventory: fill(CHIP_IDS, 0) });
       base.inventory[CHIP_IDS[0]] = 10;
       let badCount = 0;
@@ -371,11 +393,11 @@ describe("rollEvent", () => {
       }
 
       const rate = badCount / trials;
-      expect(rate).toBeGreaterThanOrEqual(0.14);
-      expect(rate).toBeLessThanOrEqual(0.16);
+      expect(rate).toBeGreaterThanOrEqual(HARD.badEventChance - 0.01);
+      expect(rate).toBeLessThanOrEqual(HARD.badEventChance + 0.01);
     });
 
-    it("good-event share within 0.085 ± 0.01 over many rolls", () => {
+    it("good-event share within (1 - bad) × good ± 0.01 over many rolls", () => {
       const base = marketState({ inventory: fill(CHIP_IDS, 0) });
       base.inventory[CHIP_IDS[0]] = 10;
       let goodCount = 0;
@@ -392,8 +414,9 @@ describe("rollEvent", () => {
       }
 
       const rate = goodCount / trials;
-      expect(rate).toBeGreaterThanOrEqual(0.075);
-      expect(rate).toBeLessThanOrEqual(0.095);
+      const expected = (1 - HARD.badEventChance) * HARD.goodEventChance;
+      expect(rate).toBeGreaterThanOrEqual(expected - 0.01);
+      expect(rate).toBeLessThanOrEqual(expected + 0.01);
     });
   });
 });
@@ -402,16 +425,17 @@ describe("rollEvent average cost", () => {
   it("fell off a truck adds free pallets that lower the average", () => {
     const base = marketState();
     const s = { ...base, inventory: { ...base.inventory, [CHIP_IDS[0]]: 10 }, avgCost: { ...base.avgCost, [CHIP_IDS[0]]: 100 } };
-    const rng = new FakeRng(goodQueue("fellOffTruck", pickValue(0, CHIP_IDS.length), 0.99)); // 5 pallets
+    const rng = new FakeRng(goodQueue("fellOffTruck", pickValue(0, CHIP_IDS.length), 0.99)); // truckMax pallets
     const after = rollEvent(s, rng);
-    expect(after.inventory[CHIP_IDS[0]]).toBe(15);
-    expect(after.avgCost[CHIP_IDS[0]]).toBe((100 * 10) / 15);
+    const total = 10 + HARD.truckMax;
+    expect(after.inventory[CHIP_IDS[0]]).toBe(total);
+    expect(after.avgCost[CHIP_IDS[0]]).toBe((100 * 10) / total);
   });
 
   it("fell off a truck on an unheld chip leaves its average at 0", () => {
     const rng = new FakeRng(goodQueue("fellOffTruck", pickValue(1, CHIP_IDS.length), 0));
     const after = rollEvent(marketState(), rng);
-    expect(after.inventory[CHIP_IDS[1]]).toBe(1);
+    expect(after.inventory[CHIP_IDS[1]]).toBe(HARD.truckMin);
     expect(after.avgCost[CHIP_IDS[1]]).toBe(0);
   });
 
@@ -422,33 +446,36 @@ describe("rollEvent average cost", () => {
       inventory: { ...base.inventory, [CHIP_IDS[0]]: n },
       avgCost: { ...base.avgCost, [CHIP_IDS[0]]: 250 },
     });
-    const partial = rollEvent(held(10), new FakeRng(badQueue("palletsMissing", true, pickValue(0, 1), 0)));
-    expect(partial.inventory[CHIP_IDS[0]]).toBe(9);
+    const partial = rollEvent(held(10), new FakeRng(badQueue("palletsMissing", true, 0)));
+    expect(partial.inventory[CHIP_IDS[0]]).toBe(10 - Math.ceil(10 * HARD.palletLossPctMin));
     expect(partial.avgCost[CHIP_IDS[0]]).toBe(250);
-    const all = rollEvent(held(1), new FakeRng(badQueue("palletsMissing", true, pickValue(0, 1), 0)));
+    const all = rollEvent(held(1), new FakeRng(badQueue("palletsMissing", true, 0)));
     expect(all.inventory[CHIP_IDS[0]]).toBe(0);
     expect(all.avgCost[CHIP_IDS[0]]).toBe(0);
   });
 });
 
-// Regression: in real seeded games, "pallets went missing" takes exactly the stated count from one held chip.
+// Regression: in real seeded games, "pallets went missing" takes the stated count from every held chip type.
 describe("palletsMissing in played games", () => {
-  it("removes the pallets the message names", () => {
+  it("removes the pallets the message names, from every held chip", () => {
     let seen = 0;
     for (let seed = 1; seed <= 400 && seen < 25; seed++) {
       let g = newGame({ seed, company: COMPANIES[0], interestEnabled: false });
       for (let day = 0; day < 10 && g.status === "playing"; day++) {
-        const affordable = g.chipIds.find((c) => (g.market[c]?.price ?? Infinity) <= g.cash);
-        if (affordable) g = buy(g, affordable, maxBuy(g, affordable));
+        for (const id of g.chipIds) {
+          const n = Math.min(maxBuy(g, id), 5);
+          if (n > 0) g = buy(g, id, n);
+        }
         const before = { ...g.inventory };
         g = travel(g, g.cityIds.find((c) => c !== g.currentCityId) ?? g.currentCityId);
         const ev = g.pendingEvent;
         if (ev?.kind === "palletsMissing") {
-          const lost = Number(/(\d+) pallet/.exec(ev.message)?.[1]);
-          const changed = g.chipIds.filter((c) => (g.inventory[c] ?? 0) !== (before[c] ?? 0));
-          expect(changed).toHaveLength(1);
-          expect((before[changed[0]] ?? 0) - (g.inventory[changed[0]] ?? 0)).toBe(lost);
-          expect(ev.message).toContain(getChip(changed[0]).name);
+          const heldBefore = g.chipIds.filter((c) => (before[c] ?? 0) > 0);
+          for (const c of heldBefore) {
+            const lost = (before[c] ?? 0) - (g.inventory[c] ?? 0);
+            expect(lost).toBeGreaterThan(0);
+            expect(ev.message).toContain(`${lost} ${getChip(c).name}`);
+          }
           seen++;
         }
         if (g.pendingEvent) g = dismissEvent(g);

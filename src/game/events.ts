@@ -1,5 +1,7 @@
 import type { GameState, EventKind, GameEvent } from "./types";
 import type { Rng } from "./rng";
+import { getDifficulty } from "./data/difficulty";
+import { formatMoney } from "./format";
 import { CONFIG } from "./data/config";
 import { getChip } from "./data/chips";
 
@@ -19,6 +21,8 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
     return state;
   }
 
+  const d = getDifficulty(state.difficulty);
+
   const hasPallets = state.chipIds.some(
     (id) => (state.inventory[id] ?? 0) > 0
   );
@@ -28,9 +32,9 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
 
   let kind: EventKind | null = null;
 
-  if (rng.chance(CONFIG.badEventChance)) {
+  if (rng.chance(d.badEventChance)) {
     kind = rng.pick(badPicks);
-  } else if (rng.chance(CONFIG.goodEventChance)) {
+  } else if (rng.chance(d.goodEventChance)) {
     kind = rng.pick(GOOD_KINDS);
   }
 
@@ -49,23 +53,21 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
 
   switch (kind) {
     case "palletsMissing": {
-      // Pick a chip that has >0 pallets
+      const base = rng.float(d.palletLossPctMin, d.palletLossPctMax);
       const heldIds = state.chipIds.filter((id) => (newInventory[id] ?? 0) > 0);
-      if (heldIds.length === 0) {
-        // Fallback: just pick first chip; spec says this shouldn't happen due to filtering above
-        return { ...state, pendingEvent: null };
+      const types = heldIds.length;
+      const pct = Math.min(d.palletLossPctCap, base + d.palletLossPerExtraType * (types - 1));
+      const parts: string[] = [];
+      for (const id of heldIds) {
+        const held = newInventory[id] ?? 0;
+        const lost = Math.min(held, Math.max(1, Math.ceil(held * pct)));
+        newInventory[id] = held - lost;
+        if (newInventory[id] === 0) {
+          newAvgCost[id] = 0;
+        }
+        parts.push(`${lost} ${getChip(id).name}`);
       }
-      const chip = rng.pick(heldIds);
-      const held = newInventory[chip] ?? 0;
-      const lossPct = rng.float(CONFIG.palletLossPctMin, CONFIG.palletLossPctMax);
-      let lost = Math.min(held, Math.max(1, Math.ceil(held * lossPct)));
-      // Ensure at least 1 and not more than held
-      lost = Math.max(1, Math.min(lost, held));
-      newInventory[chip] = held - lost;
-      if (newInventory[chip] === 0) {
-        newAvgCost[chip] = 0;
-      }
-      message = `Oh no! ${lost} pallet(s) of ${getChip(chip).name} went missing in transit.`;
+      message = `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts.join(", ")}.`;
       break;
     }
 
@@ -101,24 +103,24 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
     case "sanctions": {
       const chip = rng.pick(state.chipIds);
       newMarket[chip] = { ...newMarket[chip], buyBlocked: true };
-      const finePct = rng.float(CONFIG.finePctMin, CONFIG.finePctMax);
+      const finePct = rng.float(d.finePctMin, d.finePctMax);
       const fine = Math.min(newCash, Math.ceil(newCash * finePct));
       newCash -= fine;
-      message = `Sanctioned by the local government! ${getChip(chip).name} can't be bought here and you paid a $${fine} fine.`;
+      message = `Sanctioned by the local government! ${getChip(chip).name} can't be bought here and you paid a ${formatMoney(fine)} fine.`;
       break;
     }
 
     case "customs": {
-      const finePct = rng.float(CONFIG.finePctMin, CONFIG.finePctMax);
+      const finePct = rng.float(d.finePctMin, d.finePctMax);
       const fine = Math.min(newCash, Math.ceil(newCash * finePct));
       newCash -= fine;
-      message = `Customs shakedown at the border. You lost $${fine}.`;
+      message = `Customs shakedown at the border. You lost ${formatMoney(fine)}.`;
       break;
     }
 
     case "fellOffTruck": {
       const chip = rng.pick(state.chipIds);
-      const n = rng.int(CONFIG.truckMin, CONFIG.truckMax);
+      const n = rng.int(d.truckMin, d.truckMax);
       const held = newInventory[chip] ?? 0;
       newInventory[chip] = held + n;
       const avg = state.avgCost[chip];
@@ -129,7 +131,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
 
     case "hypeSpike": {
       const chip = rng.pick(state.chipIds);
-      const f = rng.float(CONFIG.hypeMin, CONFIG.hypeMax);
+      const f = rng.float(d.hypeMin, d.hypeMax);
       const price = newMarket[chip]?.price ?? 1;
       newMarket[chip] = { ...newMarket[chip], price: Math.max(1, Math.round(price * f)) };
       message = `Hype spike! Everyone wants ${getChip(chip).name}. Prices here are ${f.toFixed(1)}x.`;

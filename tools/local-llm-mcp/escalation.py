@@ -25,7 +25,7 @@ def _escalation_prompt(task: str, target_files: list[str], errors: str) -> str:
         errors = errors[-8000:]
     lines.append(f"<failures>\n{errors}\n</failures>")
 
-    lines.append("Finish with 1-3 lines: root cause, what you changed.")
+    lines.append("Run the failing checks (npm run lint / npm run typecheck / npm test) to confirm. Finish with 1-3 lines: root cause, what you changed.")
 
     return "\n\n".join(lines)
 
@@ -48,6 +48,8 @@ def _escalation_cmd(prompt: str, target_files: list[str]) -> list[str]:
         "Read",
         "Grep",
         "Glob",
+        "Bash(npm run *)",
+        "Bash(npm test *)",
     ]
     for t in target_files:
         cmd.extend([f"Edit(./{t})"])
