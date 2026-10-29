@@ -28,6 +28,7 @@ function recordScore(store: KeyValueStore | null, game: GameState): HighScore[] 
     cash: game.cash + game.dataCenter,
     profit: netWorth(game),
     date: new Date().toISOString(),
+    difficulty: game.difficulty,
   });
   saveHighScores(store, list);
   return list;
@@ -50,8 +51,8 @@ export function AiWars({ seed, store }: AiWarsProps): JSX.Element {
   if (state.screen === "splash") {
     return (
       <Splash
-        onStart={(company, interestEnabled) =>
-          act({ type: "start", seed: seed ?? Math.floor(Math.random() * 2 ** 32), company, interestEnabled })
+        onStart={(company, interestEnabled, difficulty) =>
+          act({ type: "start", seed: seed ?? Math.floor(Math.random() * 2 ** 32), company, interestEnabled, difficulty })
         }
       />
     );

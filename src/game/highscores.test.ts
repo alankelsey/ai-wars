@@ -209,3 +209,16 @@ describe("loadHighScores / saveHighScores", () => {
     expect(store.getItem(CONFIG.highScoreKey)).toBeDefined();
   });
 });
+
+describe("high score difficulty", () => {
+  const entry = { company: "Lentil", cash: 100, profit: 1, date: "d" };
+
+  it("keeps old entries without difficulty and entries with a known one", () => {
+    const raw = JSON.stringify([entry, { ...entry, difficulty: "brutal" }]);
+    expect(parseHighScores(raw)).toEqual([entry, { ...entry, difficulty: "brutal" }]);
+  });
+
+  it("drops entries with an unknown difficulty", () => {
+    expect(parseHighScores(JSON.stringify([{ ...entry, difficulty: "easy" }]))).toEqual([]);
+  });
+});

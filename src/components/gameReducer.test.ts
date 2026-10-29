@@ -16,7 +16,7 @@ describe("appReducer", () => {
   describe("splash -> game screen", () => {
     it("starts a fresh game with the given options", () => {
       const state = initialAppState;
-      const action = { type: "start", seed: 7, company: "Lentil", interestEnabled: false } as const;
+      const action = { type: "start", seed: 7, company: "Lentil", interestEnabled: false, difficulty: "hard" } as const;
 
       const result = appReducer(state, action);
 
@@ -35,7 +35,7 @@ describe("appReducer", () => {
     it("starts a fresh game (replaces current game)", () => {
       const base = makeBaseState();
       const state: AppState = { screen: "game", game: base };
-      const action = { type: "start", seed: 42, company: "Frugal", interestEnabled: true } as const;
+      const action = { type: "start", seed: 42, company: "Frugal", interestEnabled: true, difficulty: "brutal" } as const;
 
       const result = appReducer(state, action);
 
@@ -43,7 +43,7 @@ describe("appReducer", () => {
       if (result.screen !== "game") {
         throw new Error("Expected game screen");
       }
-      const expected = newGame({ seed: 42, company: "Frugal", interestEnabled: true });
+      const expected = newGame({ seed: 42, company: "Frugal", interestEnabled: true, difficulty: "brutal" });
       expect(result.game).toEqual(expected);
     });
   });

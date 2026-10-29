@@ -5,6 +5,7 @@ import { CONFIG } from "@/game/data/config";
 import { getCity } from "@/game/data/cities";
 import { netWorth } from "@/game/game";
 import { formatMoney } from "@/game/format";
+import { getDifficulty } from "@/game/data/difficulty";
 
 export interface StatsPanelProps {
   game: GameState;
@@ -25,7 +26,10 @@ export function StatsPanel(props: StatsPanelProps): JSX.Element {
   return (
     <section className={styles.stats} aria-label="Stats">
       <div className={styles.statsHead}>
-        <h2>{city.shortName}</h2>
+        <div>
+          <h2>{city.shortName}</h2>
+          <span className={styles.level}>{getDifficulty(game.difficulty).label}</span>
+        </div>
         <span>{`Day ${game.day}/${CONFIG.days}`}</span>
       </div>
       <div

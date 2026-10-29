@@ -5,6 +5,8 @@ import styles from "./AiWars.module.css";
 import { COMPANIES } from "@/game/data/companies";
 import { CONFIG } from "@/game/data/config";
 import { formatMoney } from "@/game/format";
+import type { Difficulty } from "@/game/types";
+import { DIFFICULTIES, DEFAULT_DIFFICULTY } from "@/game/data/difficulty";
 
 const TITLE = ` █████  ██    ██     ██  █████  ██████   ██████ ██
 ██   ██ ██    ██     ██ ██   ██ ██   ██ ██      ██
@@ -13,16 +15,17 @@ const TITLE = ` █████  ██    ██     ██  █████  �
 ██   ██ ██     ███ ███  ██   ██ ██   ██ ██████  ██`;
 
 export interface SplashProps {
-  onStart(company: string, interestEnabled: boolean): void;
+  onStart(company: string, interestEnabled: boolean, difficulty: Difficulty): void;
 }
 
 export function Splash(props: SplashProps): JSX.Element {
   const [company, setCompany] = useState<string>(COMPANIES[0]);
   const [interestEnabled, setInterestEnabled] = useState<boolean>(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>(DEFAULT_DIFFICULTY);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    props.onStart(company, interestEnabled);
+    props.onStart(company, interestEnabled, difficulty);
   };
 
   return (
@@ -52,6 +55,16 @@ export function Splash(props: SplashProps): JSX.Element {
             onChange={(e) => setInterestEnabled(e.target.checked)}
           />
           Loan interest
+        </label>
+        <label>
+          Difficulty
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
+            {DIFFICULTIES.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.label}
+              </option>
+            ))}
+          </select>
         </label>
         <button type="submit">Start New Game</button>
       </form>

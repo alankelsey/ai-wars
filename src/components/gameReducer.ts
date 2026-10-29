@@ -4,8 +4,10 @@ import { attemptTokenReset, acceptDowntime, dismissRisk } from "@/game/risks";
 import { deposit, withdraw } from "@/game/datacenter";
 
 export type AppState = { screen: "splash" } | { screen: "game"; game: GameState };
+import type { Difficulty } from "@/game/types";
+
 export type AppAction =
-  | { type: "start"; seed: number; company: string; interestEnabled: boolean }
+  | { type: "start"; seed: number; company: string; interestEnabled: boolean; difficulty: Difficulty }
   | { type: "buy"; chipId: string; qty: number }
   | { type: "sell"; chipId: string; qty: number }
   | { type: "travel"; cityId: string }
@@ -31,7 +33,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "start":
       return {
         screen: "game",
-        game: newGame({ seed: action.seed, company: action.company, interestEnabled: action.interestEnabled }),
+        game: newGame({ seed: action.seed, company: action.company, interestEnabled: action.interestEnabled, difficulty: action.difficulty }),
       };
     case "reset":
       return initialAppState;
