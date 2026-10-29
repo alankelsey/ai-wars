@@ -16,6 +16,7 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 ## 1. Spec (in `.tasks/prN.md`, gitignored)
 - Exact exported signatures and types, data shapes, edge cases, and the rules from docs/DESIGN.md that apply.
 - Name every file the model may write. Keep each call to <= 3 files / ~5k output tokens; split bigger work.
+- List the exact import lines for each target file in the task; the model guesses module paths badly.
 - Compute any expected numbers with the real formula (floating point!) or have tests compute them.
 
 ## 2. Test-first split
@@ -27,6 +28,8 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 ## 3. Implement
 - `local_iterate(task, target_files, context_files, max_rounds=4)`. Imports of target files are added to
   context automatically; still pass specs (docs/DESIGN.md) and sibling modules it should mirror.
+- When the model also wrote the tests, check failing expectations before letting it "fix" code: it tends to bend
+  correct implementations to match its own wrong tests.
 - PASSED → go to 4. STUCK / STILL FAILING → read the remaining errors yourself, find the root cause, then
   either sharpen the spec (most common: a missing helper, wrong expectation, unclear rule) and re-run, or
   make a few-line fix yourself if that is clearly cheaper. Never weaken tests to get green.
@@ -49,6 +52,9 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 - `gh pr checks <n> --watch`; on red, read `gh run view --log-failed`, fix via the loop, push.
 - Green → `gh pr merge <n> --squash --delete-branch`, `git checkout main && git pull --ff-only`.
 - Note offload numbers from `.llm-logs/metrics.jsonl` in the PR body when interesting.
+
+## 6b. After merging
+- New recurring model mistake? Add one line to "Local model pitfalls" in AGENTS.md (it is sent with every call).
 
 ## 7. When done for the day
 `scripts/dev.sh down` (stops next dev, unloads the model; GPUs idle).
