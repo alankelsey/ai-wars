@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AiWars } from "./AiWars";
-import { newGame, buy, travel, dismissEvent, endMessage, profit } from "@/game/game";
+import { newGame, buy, travel, dismissEvent, endMessage, netWorth } from "@/game/game";
+import { acceptDowntime, dismissRisk } from "@/game/risks";
 import { maxBuy } from "@/game/market";
 import { formatMoney } from "@/game/format";
 import { getChip } from "@/game/data/chips";
@@ -33,6 +34,10 @@ function simulateToEnd(): GameState {
   let g = newGame({ seed: SEED, company: COMPANY, interestEnabled: false });
   while (g.status === "playing") {
     g = dismissEvent(g);
+    if (g.pendingRisk) {
+      g = dismissRisk(acceptDowntime(g));
+      continue;
+    }
     const next = g.cityIds.find((id) => id !== g.currentCityId);
     if (next === undefined) throw new Error("no city");
     g = travel(g, next);
@@ -47,16 +52,28 @@ async function startGame(user: ReturnType<typeof userEvent.setup>): Promise<void
   await user.click(screen.getByRole("button", { name: "Start New Game" }));
 }
 
+// Answer an open dialog the same way simulateToEnd does: dismiss events, take the downtime, dismiss results.
+async function answerDialog(user: ReturnType<typeof userEvent.setup>): Promise<boolean> {
+  const event = screen.queryByRole("dialog", { name: "Event" });
+  if (event) {
+    await user.click(within(event).getByRole("button", { name: "OK" }));
+    return true;
+  }
+  const risk = screen.queryByRole("dialog", { name: "Uptime risk" });
+  if (risk) {
+    const take = within(risk).queryByRole("button", { name: "Take the downtime" });
+    await user.click(take ?? within(risk).getByRole("button", { name: "OK" }));
+    return true;
+  }
+  return false;
+}
+
 // Dismiss events and travel to the first enabled city until the end screen shows.
 async function playToEnd(user: ReturnType<typeof userEvent.setup>): Promise<number> {
   let travels = 0;
   for (let i = 0; i < 100; i++) {
     if (screen.queryByRole("heading", { name: "Game over" })) return travels;
-    const dialog = screen.queryByRole("dialog", { name: "Event" });
-    if (dialog) {
-      await user.click(within(dialog).getByRole("button", { name: "OK" }));
-      continue;
-    }
+    if (await answerDialog(user)) continue;
     const bar = screen.getByRole("navigation", { name: "Travel" });
     const next = within(bar).getAllByRole("button").find((b) => !b.hasAttribute("disabled"));
     if (!next) throw new Error("no enabled travel button");
@@ -80,7 +97,7 @@ describe("AiWars", () => {
     const user = userEvent.setup();
     render(<AiWars seed={SEED} store={null} />);
     await startGame(user);
-    expect(screen.getByText(/^Day 1\/30 · .+ · Cash \$5,500 · Debt \$5,500$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Day 1\/30 · .+ · Cash \$5,500 · Debt \$5,500 · Uptime 100%$/)).toBeInTheDocument();
     const game = newGame({ seed: SEED, company: COMPANY, interestEnabled: false });
     const market = screen.getByRole("region", { name: "Market" });
     for (const id of game.chipIds) {
@@ -127,13 +144,13 @@ describe("AiWars", () => {
     expect(await playToEnd(user)).toBe(CONFIG.days);
     const end = simulateToEnd();
     expect(
-      screen.getByText(new RegExp(`^Final cash ${money(end.cash)} · Debt ${money(end.debt)} · Profit ${money(profit(end))}$`))
+      screen.getByText(new RegExp(`^Final cash ${money(end.cash + end.dataCenter)} · Debt ${money(end.debt)} · Net worth ${money(netWorth(end))}$`))
     ).toBeInTheDocument();
     expect(screen.getByText(endMessage(end))).toBeInTheDocument();
 
     const scores = savedScores(store);
     expect(scores).toHaveLength(1);
-    expect(scores[0]).toMatchObject({ company: COMPANY, cash: end.cash, profit: profit(end) });
+    expect(scores[0]).toMatchObject({ company: COMPANY, cash: end.cash + end.dataCenter, profit: netWorth(end) });
     expect(within(screen.getByRole("table", { name: "High scores" })).getByText(COMPANY)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Start New Game" }));
@@ -145,11 +162,7 @@ describe("AiWars", () => {
     render(<AiWars seed={SEED} store={null} />);
     await startGame(user);
     for (let i = 0; i < 100 && !screen.queryByText(/^Day 30\/30/); i++) {
-      const dialog = screen.queryByRole("dialog", { name: "Event" });
-      if (dialog) {
-        await user.click(within(dialog).getByRole("button", { name: "OK" }));
-        continue;
-      }
+      if (await answerDialog(user)) continue;
       const bar = screen.getByRole("navigation", { name: "Travel" });
       const next = within(bar).getAllByRole("button").find((b) => !b.hasAttribute("disabled"));
       if (next) await user.click(next);

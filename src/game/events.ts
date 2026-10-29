@@ -40,6 +40,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
   }
 
   const newInventory = { ...state.inventory };
+  const newAvgCost = { ...state.avgCost };
   const newMarket = { ...state.market };
   const newChipModifier = { ...state.chipModifier };
   let newCash = state.cash;
@@ -61,6 +62,9 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
       // Ensure at least 1 and not more than held
       lost = Math.max(1, Math.min(lost, held));
       newInventory[chip] = held - lost;
+      if (newInventory[chip] === 0) {
+        newAvgCost[chip] = 0;
+      }
       message = `Oh no! ${lost} pallet(s) of ${getChip(chip).name} went missing in transit.`;
       break;
     }
@@ -115,7 +119,10 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
     case "fellOffTruck": {
       const chip = rng.pick(state.chipIds);
       const n = rng.int(CONFIG.truckMin, CONFIG.truckMax);
-      newInventory[chip] = (newInventory[chip] ?? 0) + n;
+      const held = newInventory[chip] ?? 0;
+      newInventory[chip] = held + n;
+      const avg = state.avgCost[chip];
+      newAvgCost[chip] = (avg * held) / (held + n);
       message = `A pallet fell off a truck... ${n} pallet(s) of ${getChip(chip).name} are now yours.`;
       break;
     }
@@ -149,6 +156,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
     ...state,
     cash: newCash,
     inventory: newInventory,
+    avgCost: newAvgCost,
     market: newMarket,
     chipModifier: newChipModifier,
     pendingEvent,

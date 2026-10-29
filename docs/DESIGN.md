@@ -94,6 +94,38 @@ Cash never goes below 0; inventory never below 0.
 Style: black background, green (#33ff33-ish) monospace, CRT feel; keyboard usable; works at 360 px wide
 (panes stack on narrow screens).
 
+## v1.1 additions (data center, net worth, tips, uptime)
+
+### Average cost
+- Each chip tracks the average price paid per pallet (`avgCost`). Buying q at price p:
+  `avg = (avg × held + p × q) / (held + q)` (kept as a float; shown rounded). Selling never changes it.
+- "Fell off a truck" pallets count as bought at $0 (they lower the average). When holdings reach 0, avg resets to 0.
+- Shown under the chip's current price when you hold it.
+
+### Data center (the bank)
+- A second balance, `dataCenter`, start $0. Deposit/withdraw whole dollars from any city.
+- **One data-center transaction per day** (a deposit *or* a withdrawal); travelling resets it.
+- Risks never touch it: fines and token resets only take pocket cash. No interest.
+
+### Net worth
+- `netWorth = cash + dataCenter − debt`. Can be negative (shown red) even with cash in hand.
+- The final profit and the high-score "cash" use the same total (cash + data center). Unsold chips are worth $0.
+
+### Market tips
+- On every arrival (day 1 included), 35% chance of one tip: a random chip is cheap (price ×uniform(0.35, 0.6)) or at a
+  premium (×uniform(1.8, 3)) in this city this visit, with a flavour message, e.g.
+  "Hsinchu's fab overproduced Onchip — cheap Onchip everywhere!". Tips are dismissible banners, not dialogs.
+
+### Uptime (replaces health)
+- Uptime starts at 100%. On every arrival after the event roll, 12% chance of an uptime risk:
+  1. **GPU cluster meltdown** 2. **Ransomware attack** 3. **Viral launch traffic surge**.
+  Each threatens a downtime of uniform int 15–35 percentage points.
+- The risk dialog offers: **Give customers token resets** — costs ceil(3% of cash), 50% chance to avoid the downtime;
+  at most 2 tries — or **Take the downtime**. If both tries fail, the downtime hits. Risks never cost money otherwise.
+- While a risk is open you can't trade, bank or travel.
+- Uptime 0% ends the game immediately: "Your service has become unreachable. Customers fled, the IPO is off, and
+  the loan shark has come to collect — enjoy your new cement shoes!"
+
 ## Backlog (not v1)
 - After game over, take a new loan and keep playing: higher APR, 25-day term.
 - Inventory capacity / rack upgrades, sound effects, money count-up animation, price history.

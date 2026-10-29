@@ -26,7 +26,8 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 - Give the model fixtures/helpers to use instead of describing them in prose.
 
 ## 3. Implement
-- `local_iterate(task, target_files, context_files, max_rounds=4)`. Imports of target files are added to
+- `local_iterate(task, target_files, context_files, max_rounds=4)`. Keep `typecheck` in `checks` even when other files are
+  mid-change (filter tests instead); dropping it hides type errors until the end. Imports of target files are added to
   context automatically; still pass specs (docs/DESIGN.md) and sibling modules it should mirror.
 - When the model also wrote the tests, check failing expectations before letting it "fix" code: it tends to bend
   correct implementations to match its own wrong tests.

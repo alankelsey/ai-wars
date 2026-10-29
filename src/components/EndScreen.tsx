@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { GameState } from "@/game/types";
 import type { HighScore } from "@/game/highscores";
-import { endMessage, profit } from "@/game/game";
+import { endMessage, netWorth } from "@/game/game";
 import { formatMoney } from "@/game/format";
 
 export interface EndScreenProps {
@@ -18,14 +18,14 @@ export function EndScreen(props: EndScreenProps): JSX.Element {
     <main className={`${styles.screen} ${styles.end}`}>
       <h1>Game over</h1>
       <p>{endMessage(game)}</p>
-      <p>{`Final cash ${formatMoney(game.cash)} · Debt ${formatMoney(game.debt)} · Profit ${formatMoney(profit(game))}`}</p>
+      <p>{`Final cash ${formatMoney(game.cash + game.dataCenter)} · Debt ${formatMoney(game.debt)} · Net worth ${formatMoney(netWorth(game))}`}</p>
       <table className={styles.table} aria-label="High scores">
         <thead>
           <tr>
             <th>#</th>
             <th>Company</th>
             <th>Cash</th>
-            <th>Profit</th>
+            <th>Net worth</th>
           </tr>
         </thead>
         <tbody>

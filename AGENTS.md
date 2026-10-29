@@ -41,6 +41,10 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 - Don't put a literal `$` before `formatMoney(...)`; it already adds one.
 - Test fixtures must use real data: companies from `COMPANIES`, chips/cities from `src/game/data`.
 - ASCII art and other "creative" strings: check that they actually say what the spec asks for.
+- Literal unions widen inside object literals: `{ ...risk, outcome: "down" }` assigned to a `const` becomes `string`.
+  Type the variable (`const next: GameState = ...`) or build it through a typed helper.
+- Test fixtures: no-op checks compare against the exact object passed in (`const input = {...}; expect(f(input)).toBe(input)`),
+  not against the base the input was spread from.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

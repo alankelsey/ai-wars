@@ -1,5 +1,6 @@
 import type { GameState } from "@/game/types";
 import { newGame, buy, sell, travel, dismissEvent } from "@/game/game";
+import { attemptTokenReset, acceptDowntime, dismissRisk } from "@/game/risks";
 
 export type AppState = { screen: "splash" } | { screen: "game"; game: GameState };
 export type AppAction =
@@ -8,6 +9,9 @@ export type AppAction =
   | { type: "sell"; chipId: string; qty: number }
   | { type: "travel"; cityId: string }
   | { type: "dismiss" }
+  | { type: "tokenReset" }
+  | { type: "acceptDowntime" }
+  | { type: "dismissRisk" }
   | { type: "reset" };
 
 export const initialAppState: AppState = { screen: "splash" };
@@ -36,5 +40,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return step(state, (g) => travel(g, action.cityId));
     case "dismiss":
       return step(state, dismissEvent);
+    case "tokenReset":
+      return step(state, attemptTokenReset);
+    case "acceptDowntime":
+      return step(state, acceptDowntime);
+    case "dismissRisk":
+      return step(state, dismissRisk);
   }
 }

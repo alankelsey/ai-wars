@@ -10,6 +10,7 @@ import { getChip } from "@/game/data/chips";
 import { getCity } from "@/game/data/cities";
 import { maxBuy, maxSell } from "@/game/market";
 import { isLastDay } from "@/game/game";
+import { tokenResetCost } from "@/game/risks";
 import { formatMoney } from "@/game/format";
 
 export interface GameScreenProps {
@@ -44,7 +45,7 @@ export function GameScreen(props: GameScreenProps): JSX.Element {
   return (
     <main className={styles.screen}>
       <p className={styles.header}>
-        {`Day ${game.day}/${CONFIG.days} · ${city.shortName} · Cash ${formatMoney(game.cash)} · Debt ${formatMoney(game.debt)}`}
+        {`Day ${game.day}/${CONFIG.days} · ${city.shortName} · Cash ${formatMoney(game.cash)} · Debt ${formatMoney(game.debt)} · Uptime ${game.uptime}%`}
       </p>
       {isLastDay(game) && (
         <p className={styles.banner} role="status">
@@ -167,6 +168,8 @@ export function GameScreen(props: GameScreenProps): JSX.Element {
             OK
           </button>
         </div>
+      ) : game.pendingRisk ? (
+        <RiskDialog game={game} dispatch={dispatch} />
       ) : (
         <nav className={styles.bar} aria-label="Travel">
           {game.cityIds.map((id) => {
@@ -186,5 +189,37 @@ export function GameScreen(props: GameScreenProps): JSX.Element {
         </nav>
       )}
     </main>
+  );
+}
+
+function RiskDialog({ game, dispatch }: GameScreenProps): JSX.Element | null {
+  const risk = game.pendingRisk;
+  if (!risk) return null;
+  if (risk.outcome !== "pending") {
+    const result =
+      risk.outcome === "avoided"
+        ? "The token resets worked. Customers stayed online."
+        : `Downtime hit. Uptime is now ${game.uptime}%.`;
+    return (
+      <div className={styles.dialog} role="dialog" aria-label="Uptime risk">
+        <p>{result}</p>
+        <button type="button" autoFocus onClick={() => dispatch({ type: "dismissRisk" })}>
+          OK
+        </button>
+      </div>
+    );
+  }
+  const triesLeft = CONFIG.tokenResetTries - risk.attempts;
+  const chance = Math.round(CONFIG.tokenResetChance * 100);
+  return (
+    <div className={styles.dialog} role="dialog" aria-label="Uptime risk">
+      <p>{risk.attempts > 0 ? `The token resets didn't work. ${risk.message}` : risk.message}</p>
+      <button type="button" autoFocus onClick={() => dispatch({ type: "tokenReset" })}>
+        {`Give token resets (${formatMoney(tokenResetCost(game))}, ${chance}% · ${triesLeft} left)`}
+      </button>
+      <button type="button" onClick={() => dispatch({ type: "acceptDowntime" })}>
+        Take the downtime
+      </button>
+    </div>
   );
 }

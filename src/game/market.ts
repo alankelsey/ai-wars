@@ -29,6 +29,7 @@ export function rollMarket(state: GameState, rng: Rng): Record<string, MarketEnt
 export function maxBuy(state: GameState, chipId: string): number {
   if (state.status !== "playing") return 0;
   if (state.pendingEvent !== null) return 0;
+  if (state.pendingRisk !== null) return 0;
 
   const entry = state.market[chipId];
   if (!entry) return 0;
@@ -41,6 +42,7 @@ export function maxBuy(state: GameState, chipId: string): number {
 export function maxSell(state: GameState, chipId: string): number {
   if (state.status !== "playing") return 0;
   if (state.pendingEvent !== null) return 0;
+  if (state.pendingRisk !== null) return 0;
 
   return state.inventory[chipId] ?? 0;
 }

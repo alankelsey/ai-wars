@@ -32,6 +32,22 @@ export interface GameEvent {
   message: string;
 }
 
+export type RiskKind = "gpuMeltdown" | "ransomware" | "trafficSurge";
+
+export interface UptimeRisk {
+  kind: RiskKind;
+  message: string;
+  downtime: number;            // uptime points lost if it hits
+  attempts: number;            // token-reset attempts made so far
+  outcome: "pending" | "avoided" | "down";
+}
+
+export interface MarketTip {
+  chipId: string;
+  cheap: boolean;              // true = discount, false = premium
+  message: string;
+}
+
 export interface MarketEntry {
   price: number;
   stock: number;
@@ -50,9 +66,16 @@ export interface GameState {
   cash: number;                // integer dollars
   debt: number;                // integer dollars
   inventory: Record<string, number>;               // chipId -> pallets held (0 if none)
+  avgCost: Record<string, number>;                 // chipId -> average price paid per pallet (float, 0 if none held)
+  dataCenter: number;          // banked dollars, untouched by risks
+  dataCenterUsed: boolean;     // one deposit/withdrawal per day; reset on travel
+  uptime: number;              // 0..100
+  tips: MarketTip[];           // this visit's market tips
   cityBias: Record<string, Record<string, number>>; // cityId -> chipId -> multiplier in [0.8, 1.2]
   chipModifier: Record<string, number>;            // chipId -> permanent multiplier, starts at 1
   market: Record<string, MarketEntry>;             // chipId -> current city's offer
   pendingEvent: GameEvent | null;
+  pendingRisk: UptimeRisk | null;
   status: "playing" | "ended";
+  endReason: "ipo" | "uptime" | null;
 }

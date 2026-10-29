@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { GameEvent, GameState, MarketEntry } from "./types";
+import type { GameEvent, GameState, MarketEntry, UptimeRisk } from "./types";
 import { createRng } from "./rng";
 import { rollMarket } from "./market";
 import { rollEvent } from "./events";
+import { rollTips } from "./tips";
+import { rollRisk, acceptDowntime, dismissRisk } from "./risks";
 import { CONFIG } from "./data/config";
 import { CITIES } from "./data/cities";
 import { CHIPS } from "./data/chips";
@@ -15,12 +17,14 @@ import {
   accrueInterest,
   travel,
   isLastDay,
-  profit,
+  netWorth,
   endMessage,
+  UPTIME_END_MESSAGE,
 } from "./game";
 
 const CHIP = CHIP_IDS[0];
 const PENDING: GameEvent = { kind: "customs", good: false, message: "x" };
+const RISK: UptimeRisk = { kind: "ransomware", message: "x", downtime: 20, attempts: 0, outcome: "pending" };
 
 // makeState with every chip priced at 100, stock 50, as fresh objects.
 function marketState(overrides: Partial<GameState> = {}): GameState {
@@ -56,6 +60,12 @@ describe("newGame", () => {
     expect(g.debt).toBe(CONFIG.startDebt);
     expect(g.status).toBe("playing");
     expect(g.pendingEvent).toBeNull();
+    expect(g.pendingRisk).toBeNull();
+    expect(g.endReason).toBeNull();
+    expect(g.dataCenter).toBe(0);
+    expect(g.dataCenterUsed).toBe(false);
+    expect(g.uptime).toBe(CONFIG.startUptime);
+    g.chipIds.forEach((id) => expect(g.avgCost[id]).toBe(0));
   });
 
   it("picks 6 distinct cities and 12 distinct chips from the data", () => {
@@ -80,7 +90,10 @@ describe("newGame", () => {
         expect(g.cityBias[cityId][chipId]).toBe(rng.float(CONFIG.cityBiasMin, CONFIG.cityBiasMax));
       }
     }
-    expect(g.market).toEqual(rollMarket(g, rng));
+    const priced = { ...g, market: rollMarket(g, rng), tips: [] };
+    const tipped = rollTips(priced, rng);
+    expect(g.market).toEqual(tipped.market);
+    expect(g.tips).toEqual(tipped.tips);
     expect(g.rngState).toBe(rng.state);
   });
 
@@ -221,14 +234,18 @@ describe("travel", () => {
     expect(travel(pending, CITY_IDS[1])).toBe(pending);
     const ended = marketState({ status: "ended" });
     expect(travel(ended, CITY_IDS[1])).toBe(ended);
+    const risky = marketState({ pendingRisk: RISK });
+    expect(travel(risky, CITY_IDS[1])).toBe(risky);
   });
 
-  it("advances the day, rolls market then event from rngState, and stores the new rngState", () => {
-    for (const rngState of [1, 77, 4242, 99999]) {
-      const s = withInventory(marketState({ rngState, day: 4 }), CHIP, 8);
+  it("advances the day, rolls market, tips, event, risk from rngState, and stores the new rngState", () => {
+    for (const rngState of [1, 77, 4242, 99999, 123456, 777777]) {
+      const base = withInventory(marketState({ rngState, day: 4, dataCenterUsed: true }), CHIP, 8);
+      const s = { ...base, tips: [{ chipId: CHIP, cheap: true, message: "stale" }] };
       const rng = createRng(rngState);
-      const moved: GameState = { ...s, day: 5, currentCityId: CITY_IDS[2] };
-      const expected = rollEvent({ ...moved, market: rollMarket(moved, rng) }, rng);
+      const moved: GameState = { ...s, day: 5, currentCityId: CITY_IDS[2], dataCenterUsed: false, tips: [] };
+      const priced = { ...moved, market: rollMarket(moved, rng) };
+      const expected = rollRisk(rollEvent(rollTips(priced, rng), rng), rng);
       expect(travel(s, CITY_IDS[2])).toEqual({ ...expected, rngState: rng.state });
     }
   });
@@ -250,37 +267,54 @@ describe("travel", () => {
   it("ends the game when leaving the last day without rolling anything", () => {
     const s = marketState({ day: CONFIG.days, debt: 5500, interestEnabled: true });
     const after = travel(s, CITY_IDS[1]);
-    expect(after).toEqual({ ...s, debt: 5502, status: "ended" });
+    expect(after).toEqual({ ...s, debt: 5502, status: "ended", endReason: "ipo" });
   });
 
-  it("plays a full seeded game to the end", () => {
-    let g = newGame({ seed: 7, company: "SMuC", interestEnabled: true });
-    let travels = 0;
-    while (g.status === "playing") {
-      g = dismissEvent(g);
-      const next = g.cityIds.find((id) => id !== g.currentCityId);
-      if (next === undefined) throw new Error("no city to travel to");
-      g = travel(g, next);
-      travels++;
+  it("plays seeded games to the end, through uptime risks", () => {
+    let totalRisks = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      let g = newGame({ seed, company: "SMuC", interestEnabled: true });
+      let travels = 0;
+      while (g.status === "playing") {
+        g = dismissEvent(g);
+        if (g.pendingRisk) {
+          totalRisks++;
+          g = dismissRisk(acceptDowntime(g));
+          continue;
+        }
+        const next = g.cityIds.find((id) => id !== g.currentCityId);
+        if (next === undefined) throw new Error("no city to travel to");
+        g = travel(g, next);
+        travels++;
+      }
+      if (g.endReason === "ipo") {
+        expect(travels).toBe(CONFIG.days);
+        expect(g.day).toBe(CONFIG.days);
+        let debt: number = CONFIG.startDebt;
+        for (let i = 0; i < CONFIG.days; i++) debt = accrueInterest(debt);
+        expect(g.debt).toBe(debt);
+      } else {
+        expect(g.endReason).toBe("uptime");
+        expect(g.uptime).toBe(0);
+        expect(travels).toBeLessThan(CONFIG.days);
+      }
     }
-    expect(travels).toBe(CONFIG.days);
-    expect(g.day).toBe(CONFIG.days);
-    let debt: number = CONFIG.startDebt;
-    for (let i = 0; i < CONFIG.days; i++) debt = accrueInterest(debt);
-    expect(g.debt).toBe(debt);
+    expect(totalRisks).toBeGreaterThan(0);
   });
 });
 
-describe("isLastDay / profit / endMessage", () => {
+describe("isLastDay / netWorth / endMessage", () => {
   it("flags only day 30 while playing", () => {
     expect(isLastDay(marketState({ day: CONFIG.days }))).toBe(true);
     expect(isLastDay(marketState({ day: CONFIG.days - 1 }))).toBe(false);
     expect(isLastDay(marketState({ day: CONFIG.days, status: "ended" }))).toBe(false);
   });
 
-  it("profit is cash minus debt", () => {
-    expect(profit(marketState({ cash: 7000, debt: 5500 }))).toBe(1500);
-    expect(profit(marketState({ cash: 0, debt: 5500 }))).toBe(-5500);
+  it("net worth is cash plus data center minus debt, and can be negative with cash in hand", () => {
+    expect(netWorth(marketState({ cash: 7000, debt: 5500 }))).toBe(1500);
+    expect(netWorth(marketState({ cash: 0, debt: 5500 }))).toBe(-5500);
+    expect(netWorth(marketState({ cash: 1000, dataCenter: 2000, debt: 5500 }))).toBe(-2500);
+    expect(netWorth(marketState({ cash: 3000, dataCenter: 4000, debt: 5500 }))).toBe(1500);
   });
 
   it("congratulates on profit with formatted money and company", () => {
@@ -298,5 +332,35 @@ describe("isLastDay / profit / endMessage", () => {
   it("has the loss message", () => {
     expect(endMessage(marketState({ cash: 5499, debt: 5500 }))).toMatch(/^You didn't pay your loan in time\./);
     expect(endMessage(marketState({ cash: 5499, debt: 5500 }))).toMatch(/cement shoes!$/);
+  });
+
+  it("counts the data center in the end message", () => {
+    expect(endMessage(marketState({ cash: 500, dataCenter: 5000, debt: 5500 }))).toMatch(/^You payed your loan off\./);
+  });
+
+  it("has the uptime game-over message regardless of money", () => {
+    expect(endMessage(marketState({ cash: 99999, debt: 5500, status: "ended", endReason: "uptime" }))).toBe(
+      UPTIME_END_MESSAGE
+    );
+    expect(UPTIME_END_MESSAGE).toMatch(/^Your service has become unreachable\..*loan shark.*cement shoes!$/);
+  });
+});
+
+describe("average cost", () => {
+  it("is the price paid on the first buy", () => {
+    expect(buy(marketState(), CHIP, 3).avgCost[CHIP]).toBe(100);
+  });
+
+  it("is weighted across buys at different prices", () => {
+    const first = buy(marketState({ cash: 100000 }), CHIP, 2); // 2 @ 100
+    const repriced = { ...first, market: { ...first.market, [CHIP]: { price: 400, stock: 50, buyBlocked: false } } };
+    const second = buy(repriced, CHIP, 1); // 1 @ 400
+    expect(second.avgCost[CHIP]).toBe(200);
+  });
+
+  it("is unchanged by a partial sell and resets to 0 when everything is sold", () => {
+    const bought = buy(marketState(), CHIP, 4);
+    expect(sell(bought, CHIP, 1).avgCost[CHIP]).toBe(100);
+    expect(sell(bought, CHIP, 4).avgCost[CHIP]).toBe(0);
   });
 });
