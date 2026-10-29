@@ -1,0 +1,242 @@
+.screen {
+  max-width: 1100px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-shadow: 0 0 4px rgba(51, 255, 51, 0.5);
+}
+
+/* faint CRT scanlines over everything */
+.screen::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0) 0 2px, rgba(0, 0, 0, 0.25) 2px 3px);
+}
+
+.title {
+  margin: 24px auto 0;
+  font-size: clamp(5px, 1.6vw, 14px);
+  line-height: 1.05;
+  color: var(--fg);
+  overflow: hidden;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.story {
+  max-width: 60ch;
+  margin: 0 auto;
+  text-align: center;
+  color: var(--accent);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.screen input[type="checkbox"] {
+  accent-color: var(--fg);
+}
+
+.form select,
+.screen input[type="number"] {
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--fg-dim);
+}
+
+.form button,
+.end > button {
+  padding: 8px 16px;
+  font-size: 1.1em;
+}
+
+.links {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.links a {
+  color: var(--fg-dim);
+}
+
+.header {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--fg-dim);
+  font-weight: bold;
+}
+
+.banner {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--fg);
+  color: var(--accent);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1;
+}
+
+.pane {
+  border: 1px solid var(--fg-dim);
+  padding: 8px;
+  overflow-x: auto;
+}
+
+.pane > p {
+  color: var(--fg-dim);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  text-align: left;
+  color: var(--fg-dim);
+  font-weight: normal;
+  border-bottom: 1px solid var(--fg-dim);
+}
+
+.table td,
+.table th {
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.stepper input {
+  width: 4.5ch;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.stepper button {
+  padding: 0 4px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--fg-dim);
+}
+
+.bar button {
+  flex: 1 1 120px;
+  padding: 8px;
+}
+
+.dialog {
+  padding: 12px;
+  border: 2px double var(--fg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialog p {
+  margin: 0;
+}
+
+.dialog button {
+  padding: 6px 20px;
+}
+
+.end {
+  align-items: center;
+  text-align: center;
+}
+
+.end .table {
+  max-width: 600px;
+}
+
+@media (max-width: 720px) {
+  .panes {
+    grid-template-columns: 1fr;
+    flex: none;
+  }
+
+  /* trade tables become one card per chip: name on top, numbers and controls below */
+  .pane .table thead {
+    display: none;
+  }
+
+  .pane .table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 6px 0;
+    border-bottom: 1px dotted var(--fg-dim);
+  }
+
+  .pane .table td {
+    padding: 0;
+  }
+
+  .pane .table td:first-child {
+    flex-basis: 100%;
+    font-weight: bold;
+  }
+
+  /* the two number cells share a line, pushing qty + button onto the next one */
+  .pane .table td[data-label] {
+    flex: 1 1 40%;
+    text-align: left;
+  }
+
+  .pane .table td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--fg-dim);
+  }
+}
