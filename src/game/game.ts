@@ -170,7 +170,7 @@ export function endMessage(state: GameState): string {
   const company = state.company;
 
   if (p > 0) {
-    return `Congrats, you are the alpha AI tech bro and generated a profit of ${formatMoney(p)} for ${company}. The first ever profitable AI company!`;
+    return `Congrats, you are the alpha AI tech bro/bae and generated a profit of ${formatMoney(p)} for ${company}. The first ever profitable AI company!`;
   }
   if (p === 0) {
     return "You payed your loan off. Yay, no cement shoes! Unfortunately you will live a life of mockery for your poor decisions and bad luck.";
