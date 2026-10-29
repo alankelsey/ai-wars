@@ -112,7 +112,7 @@ function RiskModal({ game, dispatch }: GameScreenProps): JSX.Element | null {
   if (risk.outcome !== "pending") {
     const result =
       risk.outcome === "avoided"
-        ? "The token resets worked. Customers stayed online."
+        ? "The token resets made customers forget about the outage. Uptime preserved."
         : `Downtime hit. Uptime is now ${game.uptime}%.`;
     return (
       <Modal label="Uptime risk" title={title}>

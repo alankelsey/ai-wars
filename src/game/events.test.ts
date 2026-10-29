@@ -5,6 +5,9 @@ import { rollEvent } from "./events";
 import { makeState, CHIP_IDS, fill, FakeRng, pickValue } from "./testUtils";
 import { CONFIG } from "./data/config";
 import { getChip } from "./data/chips";
+import { COMPANIES } from "./data/companies";
+import { newGame, buy, travel, dismissEvent } from "./game";
+import { maxBuy } from "./market";
 
 const BAD_KINDS: readonly EventKind[] = ["palletsMissing", "competitorVram", "quantization", "sanctions", "customs"];
 const GOOD_KINDS: readonly EventKind[] = ["fellOffTruck", "hypeSpike", "fireSale"];
@@ -425,5 +428,33 @@ describe("rollEvent average cost", () => {
     const all = rollEvent(held(1), new FakeRng(badQueue("palletsMissing", true, pickValue(0, 1), 0)));
     expect(all.inventory[CHIP_IDS[0]]).toBe(0);
     expect(all.avgCost[CHIP_IDS[0]]).toBe(0);
+  });
+});
+
+// Regression: in real seeded games, "pallets went missing" takes exactly the stated count from one held chip.
+describe("palletsMissing in played games", () => {
+  it("removes the pallets the message names", () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 400 && seen < 25; seed++) {
+      let g = newGame({ seed, company: COMPANIES[0], interestEnabled: false });
+      for (let day = 0; day < 10 && g.status === "playing"; day++) {
+        const affordable = g.chipIds.find((c) => (g.market[c]?.price ?? Infinity) <= g.cash);
+        if (affordable) g = buy(g, affordable, maxBuy(g, affordable));
+        const before = { ...g.inventory };
+        g = travel(g, g.cityIds.find((c) => c !== g.currentCityId) ?? g.currentCityId);
+        const ev = g.pendingEvent;
+        if (ev?.kind === "palletsMissing") {
+          const lost = Number(/(\d+) pallet/.exec(ev.message)?.[1]);
+          const changed = g.chipIds.filter((c) => (g.inventory[c] ?? 0) !== (before[c] ?? 0));
+          expect(changed).toHaveLength(1);
+          expect((before[changed[0]] ?? 0) - (g.inventory[changed[0]] ?? 0)).toBe(lost);
+          expect(ev.message).toContain(getChip(changed[0]).name);
+          seen++;
+        }
+        if (g.pendingEvent) g = dismissEvent(g);
+        if (g.pendingRisk) g = { ...g, pendingRisk: null };
+      }
+    }
+    expect(seen).toBe(25);
   });
 });
