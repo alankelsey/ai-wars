@@ -193,3 +193,21 @@ describe("appReducer", () => {
     });
   });
 });
+
+describe("data center chip actions", () => {
+  it("stores and retrieves pallets through the engine", () => {
+    const base = makeBaseState();
+    const id = base.chipIds[0];
+    const game: GameState = { ...base, inventory: { ...base.inventory, [id]: 3 } };
+    const stored = appReducer({ screen: "game", game }, { type: "depositChips", chipId: id, qty: 3 });
+    if (stored.screen !== "game") throw new Error("Expected game screen");
+    expect(stored.game.dataCenterChips[id]).toBe(3);
+    expect(stored.game.inventory[id]).toBe(0);
+
+    const nextDay: GameState = { ...stored.game, dataCenterUsed: false };
+    const back = appReducer({ screen: "game", game: nextDay }, { type: "withdrawChips", chipId: id, qty: 2 });
+    if (back.screen !== "game") throw new Error("Expected game screen");
+    expect(back.game.inventory[id]).toBe(2);
+    expect(back.game.dataCenterChips[id]).toBe(1);
+  });
+});

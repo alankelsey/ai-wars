@@ -26,6 +26,7 @@ export function MarketList(props: MarketListProps): JSX.Element {
           if (!entry) return null;
 
           const held = game.inventory[id] ?? 0;
+          const stored = game.dataCenterChips[id] ?? 0;
           const avgCost = game.avgCost[id] ?? 0;
           const buyBlocked = entry.buyBlocked;
           const tip = game.tips.find((t) => t.chipId === id);
@@ -40,7 +41,7 @@ export function MarketList(props: MarketListProps): JSX.Element {
               >
                 <span className={styles.chipName}>{chip.name}</span>
                 <span className={styles.chipPrice}>{formatMoney(entry.price)}</span>
-                {held > 0 ? <span className={styles.avg}>{`Avg ${formatMoney(Math.round(avgCost))}`}</span> : null}
+                {held + stored > 0 ? <span className={styles.avg}>{`Avg ${formatMoney(Math.round(avgCost))}`}</span> : null}
                 {tip ? (
                   <span className={tip.cheap ? styles.good : styles.bad}>
                     {tip.cheap ? "▼ deal" : "▲ hot"}
@@ -48,8 +49,11 @@ export function MarketList(props: MarketListProps): JSX.Element {
                 ) : null}
               </button>
               <div className={styles.held}>
-                {held > 0 ? (
-                  <span className={styles.good}>{`${held} held`}</span>
+                {held > 0 || stored > 0 ? (
+                  <>
+                    <span className={styles.good}>{`${held} held`}</span>
+                    {stored > 0 && <span>{`${stored} stored`}</span>}
+                  </>
                 ) : (
                   <span>None held</span>
                 )}

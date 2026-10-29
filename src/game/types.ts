@@ -71,6 +71,7 @@ export interface GameState {
   inventory: Record<string, number>;               // chipId -> pallets held (0 if none)
   avgCost: Record<string, number>;                 // chipId -> average price paid per pallet (float, 0 if none held)
   dataCenter: number;          // banked dollars, untouched by risks
+  dataCenterChips: Record<string, number>;         // chipId -> pallets stored in data center (0 if none)
   dataCenterUsed: boolean;     // one deposit/withdrawal per day; reset on travel
   uptime: number;              // 0..100
   tips: MarketTip[];           // this visit's market tips

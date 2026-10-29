@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import type { GameEvent, UptimeRisk } from "./types";
-import { canUseDataCenter, deposit, withdraw } from "./datacenter";
-import { makeState } from "./testUtils";
+import type { GameEvent, GameState, UptimeRisk } from "./types";
+import { canUseDataCenter, deposit, withdraw, depositChips, withdrawChips } from "./datacenter";
+import { makeState, CHIP_IDS, FakeRng, fill, pickValue } from "./testUtils";
+import { newGame, buy, sell } from "./game";
+import { rollEvent } from "./events";
+import { maxSell } from "./market";
+import { COMPANIES } from "./data/companies";
+import { getDifficulty } from "./data/difficulty";
 
 describe("canUseDataCenter", () => {
   const base = makeState({ cash: 1000, dataCenter: 500 });
@@ -200,5 +205,112 @@ describe("withdraw", () => {
     const clone = structuredClone(input);
     withdraw(input, 200);
     expect(input).toEqual(clone);
+  });
+});
+
+// --- chips in the data center ------------------------------------------------
+const A = CHIP_IDS[0];
+const B = CHIP_IDS[1];
+
+function stocked(overrides: Partial<GameState> = {}): GameState {
+  const base = makeState({ cash: 10_000 });
+  return {
+    ...base,
+    market: fill(CHIP_IDS, { price: 100, stock: 50, buyBlocked: false }),
+    inventory: { ...base.inventory, [A]: 10 },
+    avgCost: { ...base.avgCost, [A]: 80 },
+    ...overrides,
+  };
+}
+
+describe("depositChips / withdrawChips", () => {
+  it("newGame starts with an empty data center for every chip", () => {
+    const g = newGame({ seed: 3, company: COMPANIES[0], interestEnabled: false });
+    expect(Object.keys(g.dataCenterChips).sort()).toEqual([...g.chipIds].sort());
+    expect(Object.values(g.dataCenterChips).every((n) => n === 0)).toBe(true);
+  });
+
+  it("moves pallets into the data center and uses the day's transaction", () => {
+    const s = stocked();
+    const after = depositChips(s, A, 4);
+    expect(after.inventory[A]).toBe(6);
+    expect(after.dataCenterChips[A]).toBe(4);
+    expect(after.dataCenterUsed).toBe(true);
+    expect(after.avgCost[A]).toBe(80);
+    expect(s.inventory[A]).toBe(10); // input untouched
+  });
+
+  it("withdraws stored pallets back to hand", () => {
+    const s = stocked({ dataCenterChips: { ...fill(CHIP_IDS, 0), [A]: 5 } });
+    const after = withdrawChips(s, A, 5);
+    expect(after.inventory[A]).toBe(15);
+    expect(after.dataCenterChips[A]).toBe(0);
+    expect(after.dataCenterUsed).toBe(true);
+  });
+
+  it("rejects bad quantities, unknown chips and a second transaction", () => {
+    const s = stocked();
+    for (const q of [0, -1, 1.5, 11]) expect(depositChips(s, A, q)).toBe(s);
+    expect(withdrawChips(s, A, 1)).toBe(s); // nothing stored
+    expect(depositChips(s, "not-a-chip", 1)).toBe(s);
+    const used = { ...s, dataCenterUsed: true };
+    expect(depositChips(used, A, 1)).toBe(used);
+    const afterCash = deposit(s, 100);
+    expect(depositChips(afterCash, A, 1)).toBe(afterCash); // cash deposit already used today's transaction
+  });
+
+  it("stored pallets cannot be sold", () => {
+    const s = depositChips(stocked(), A, 10);
+    expect(maxSell(s, A)).toBe(0);
+    expect(sell(s, A, 1)).toBe(s);
+  });
+});
+
+describe("average cost covers on-hand and stored pallets", () => {
+  it("buying blends with stored pallets too", () => {
+    const s = stocked({ inventory: fill(CHIP_IDS, 0), dataCenterChips: { ...fill(CHIP_IDS, 0), [A]: 10 } });
+    const after = buy(s, A, 10); // 10 stored @80 + 10 new @100
+    expect(after.avgCost[A]).toBe(90);
+  });
+
+  it("selling all on-hand keeps the average while pallets are stored", () => {
+    const s = stocked({ dataCenterChips: { ...fill(CHIP_IDS, 0), [A]: 3 } });
+    expect(sell(s, A, 10).avgCost[A]).toBe(80);
+    const none = stocked();
+    expect(sell(none, A, 10).avgCost[A]).toBe(0);
+  });
+
+  it("a free truck load dilutes the average over all owned pallets", () => {
+    const s = stocked({ dataCenterChips: { ...fill(CHIP_IDS, 0), [A]: 10 } }); // 20 owned @80
+    const hard = getDifficulty("hard");
+    // good event: bad roll fails (0.99), good roll hits (0), pick fellOffTruck (index 0 of 3), chip A, max pallets
+    const after = rollEvent(s, new FakeRng([0.99, 0, pickValue(0, 3), pickValue(0, CHIP_IDS.length), 0.99]));
+    expect(after.pendingEvent?.kind).toBe("fellOffTruck");
+    expect(after.avgCost[A]).toBe((80 * 20) / (20 + hard.truckMax));
+  });
+
+  it("missing pallets only hit on-hand chips and keep the average while some are stored", () => {
+    const s = stocked({
+      inventory: { ...fill(CHIP_IDS, 0), [A]: 1, [B]: 1 },
+      avgCost: { ...fill(CHIP_IDS, 0), [A]: 80, [B]: 50 },
+      dataCenterChips: { ...fill(CHIP_IDS, 0), [A]: 7 },
+    });
+    // bad roll hits (0), palletsMissing is index 0 of the 5 bad kinds, base loss draw 0
+    const after = rollEvent(s, new FakeRng([0, pickValue(0, 5), 0]));
+    expect(after.pendingEvent?.kind).toBe("palletsMissing");
+    expect(after.inventory[A]).toBe(0);
+    expect(after.inventory[B]).toBe(0);
+    expect(after.dataCenterChips).toEqual(s.dataCenterChips);
+    expect(after.avgCost[A]).toBe(80); // 7 still stored
+    expect(after.avgCost[B]).toBe(0);
+  });
+
+  it("fines never touch data center cash", () => {
+    const s = stocked({ dataCenter: 5000 });
+    // bad roll hits, customs is index 4 of 5, fine at max %
+    const after = rollEvent(s, new FakeRng([0, pickValue(4, 5), 0.99]));
+    expect(after.pendingEvent?.kind).toBe("customs");
+    expect(after.dataCenter).toBe(5000);
+    expect(after.cash).toBeLessThan(s.cash);
   });
 });

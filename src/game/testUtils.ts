@@ -59,6 +59,7 @@ export function makeState(overrides?: Partial<GameState>): GameState {
     inventory: fill(CHIP_IDS, 0),
     avgCost: fill(CHIP_IDS, 0),
     dataCenter: 0,
+    dataCenterChips: fill(CHIP_IDS, 0),
     dataCenterUsed: false,
     uptime: 100,
     tips: [],
