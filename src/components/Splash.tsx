@@ -1,0 +1,65 @@
+"use client";
+
+import { useState, type FormEvent, type JSX } from "react";
+import styles from "./AiWars.module.css";
+import { COMPANIES } from "@/game/data/companies";
+import { CONFIG } from "@/game/data/config";
+import { formatMoney } from "@/game/format";
+
+const TITLE = ` █████  ██    ██     ██  █████  ██████   ██████ ██
+██   ██ ██    ██     ██ ██   ██ ██   ██ ██      ██
+███████ ██    ██  █  ██ ███████ ██████   █████  ██
+██   ██ ██    ██ ███ ██ ██   ██ ██   ██      ██
+██   ██ ██     ███ ███  ██   ██ ██   ██ ██████  ██`;
+
+export interface SplashProps {
+  onStart(company: string, interestEnabled: boolean): void;
+}
+
+export function Splash(props: SplashProps): JSX.Element {
+  const [company, setCompany] = useState<string>(COMPANIES[0]);
+  const [interestEnabled, setInterestEnabled] = useState<boolean>(false);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    props.onStart(company, interestEnabled);
+  };
+
+  return (
+    <main className={styles.screen}>
+      <h1 className={styles.srOnly}>AI WARS!</h1>
+      <pre className={styles.title} aria-hidden="true">
+{TITLE}
+      </pre>
+      <p className={styles.story}>
+        {`You are an AI tech bro at ${company} trying to outfit your datacenters. You have ${formatMoney(CONFIG.startCash)} and ${CONFIG.days} days to turn a profit before your IPO.`}
+      </p>
+      <form className={styles.form} onSubmit={handleSubmit}>
+        <label>
+          Company
+          <select value={company} onChange={(e) => setCompany(e.target.value)}>
+            {COMPANIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={interestEnabled}
+            onChange={(e) => setInterestEnabled(e.target.checked)}
+          />
+          Loan interest
+        </label>
+        <button type="submit">Start New Game</button>
+      </form>
+      <nav className={styles.links} aria-label="Links">
+        <a href="#">GitHub</a>
+        <a href="#">X</a>
+        <a href="#">Bluesky</a>
+      </nav>
+    </main>
+  );
+}
