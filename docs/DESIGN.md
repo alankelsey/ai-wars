@@ -110,6 +110,8 @@ Style: black background, green (#33ff33-ish) monospace, CRT feel; keyboard usabl
 ### Net worth
 - `netWorth = cash + dataCenter − debt`. Can be negative (shown red) even with cash in hand.
 - The final profit and the high-score "cash" use the same total (cash + data center). Unsold chips are worth $0.
+- Held chips are deliberately left out, also during play: they only count once sold, because the market can crash
+  and unsold chips are worthless at the IPO. A big negative net worth right after buying is intended — don't "fix" it.
 
 ### Market tips
 - On every arrival (day 1 included), 35% chance of one tip: a random chip is cheap (price ×uniform(0.35, 0.6)) or at a
