@@ -72,7 +72,7 @@ describe("AiWars", () => {
     render(<AiWars seed={SEED} store={null} />);
     expect(screen.getByRole("heading", { name: "AI WARS!" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Company"), COMPANY);
-    expect(screen.getByText(new RegExp(`AI tech bro at ${COMPANY}`))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`AI tech bro/bae at ${COMPANY}`))).toBeInTheDocument();
     expect(screen.getByLabelText("Loan interest")).not.toBeChecked();
   });
 

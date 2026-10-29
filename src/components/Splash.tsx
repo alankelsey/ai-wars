@@ -32,7 +32,7 @@ export function Splash(props: SplashProps): JSX.Element {
 {TITLE}
       </pre>
       <p className={styles.story}>
-        {`You are an AI tech bro at ${company} trying to outfit your datacenters. You have ${formatMoney(CONFIG.startCash)} and ${CONFIG.days} days to turn a profit before your IPO.`}
+        {`You are an AI tech bro/bae at ${company} trying to outfit your datacenters. You have ${formatMoney(CONFIG.startCash)} and ${CONFIG.days} days to turn a profit before your IPO.`}
       </p>
       <form className={styles.form} onSubmit={handleSubmit}>
         <label>

@@ -69,7 +69,7 @@ Cash never goes below 0; inventory never below 0.
 
 ## End of game (on leaving day 30)
 - `profit = cash − debt`.
-- profit > 0: "Congrats, you are the alpha AI tech bro and generated a profit of $<profit> for <company>.
+- profit > 0: "Congrats, you are the alpha AI tech bro/bae and generated a profit of $<profit> for <company>.
   The first ever profitable AI company!"
 - profit = 0: "You payed your loan off. Yay, no cement shoes! Unfortunately you will live a life of mockery for
   your poor decisions and bad luck."
@@ -82,7 +82,7 @@ Cash never goes below 0; inventory never below 0.
 - Read/write wrapped in try/catch; the game works with storage blocked.
 
 ## Screens
-1. **Splash**: "AI WARS!" in pixel-art text, story hook ("You are an AI tech bro at <company> trying to outfit your
+1. **Splash**: "AI WARS!" in pixel-art text, story hook ("You are an AI tech bro/bae at <company> trying to outfit your
    datacenters. You have $5,500 and 30 days to turn a profit before your IPO."), company picker + interest
    checkbox, Start New Game button, placeholder links (GitHub, X, Bluesky).
 2. **Game**: header line `Day N/30 · <City> · Cash $X · Debt $Y`. Split pane:

@@ -285,7 +285,7 @@ describe("isLastDay / profit / endMessage", () => {
 
   it("congratulates on profit with formatted money and company", () => {
     expect(endMessage(marketState({ cash: 12000, debt: 5500, company: "Frugal" }))).toBe(
-      "Congrats, you are the alpha AI tech bro and generated a profit of $6,500 for Frugal. The first ever profitable AI company!"
+      "Congrats, you are the alpha AI tech bro/bae and generated a profit of $6,500 for Frugal. The first ever profitable AI company!"
     );
   });
 
