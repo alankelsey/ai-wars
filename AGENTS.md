@@ -30,6 +30,20 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 
 <!-- BEGIN:nextjs-agent-rules -->
 
+## Local model pitfalls (seen in past PRs; check your output against these)
+- Imports: use only paths that exist. Engine modules are `@/game/game`, `@/game/market`, `@/game/types`,
+  `@/game/data/...`; there is no `@/game` or `../game` barrel. If a task lists import lines, copy them exactly.
+- A failing test may be wrong. If the implementation matches the spec and the test does not, say so in your notes
+  and fix the test (when it is yours to edit); never bend working code to match a bad expectation.
+- `as const` only goes on literals (`[...] as const`, `{...} as const`), never on a `.map(...)` or other call.
+- `CONFIG` values are literal types: `let debt = CONFIG.startDebt` is typed `5500`. Annotate: `let debt: number`.
+- React lint: no `setState` inside `useEffect`, no reading/writing `ref.current` during render. Do side effects in
+  the event handler that causes them.
+- Text that tests match as one string (headers, summary lines) must be one template literal, not `{a} text {b}`.
+- Don't put a literal `$` before `formatMoney(...)`; it already adds one.
+- Test fixtures must use real data: companies from `COMPANIES`, chips/cities from `src/game/data`.
+- ASCII art and other "creative" strings: check that they actually say what the spec asks for.
+
 ## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
