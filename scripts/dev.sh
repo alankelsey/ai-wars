@@ -4,15 +4,23 @@
 #   dev.sh status     model / VRAM / web server state
 #   dev.sh down       stop next dev, unload the model (GPUs idle, Ollama stays in spread mode)
 #   dev.sh restore    back to per-card mode (card0 Ollama, card1 Ollama + ComfyUI) via gpu-services
+#   dev.sh model M [ctx]  switch the local model (MCP server picks it up next call)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 MODEL=${LOCAL_MODEL:-qwen3-coder-next:q4_K_M}
-NUM_CTX=${LOCAL_NUM_CTX:-131072}   # 128k = 56 GB over both cards; 262144 fits too (60 GB)
+NUM_CTX=${LOCAL_NUM_CTX:-262144}   # 256k ≈ 60 GB over both cards for qwen3-coder-next
 OLLAMA=${OLLAMA_URL:-http://localhost:11434}
 GPU_SERVICES=${GPU_SERVICES:-$HOME/projects/gpu-services}
 DROPDIR=/etc/systemd/system/ollama.service.d
 RUN=$ROOT/.dev; mkdir -p "$RUN"
+
+load_settings() {  # .dev/local-llm.json (written by `dev.sh model`) overrides env/defaults; keys optional
+  [[ -f $RUN/local-llm.json ]] || return 0
+  MODEL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model", sys.argv[2]))' "$RUN/local-llm.json" "$MODEL")
+  NUM_CTX=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("num_ctx", sys.argv[2])))' "$RUN/local-llm.json" "$NUM_CTX")
+}
+load_settings
 
 vram() {  # rocm-smi isn't installed; read amdgpu sysfs, skipping the iGPU
   for d in /sys/class/drm/card[0-9]*/device; do
@@ -66,6 +74,13 @@ case ${1:-status} in
   status)
     [[ -f $DROPDIR/card0.conf ]] && echo "ollama: per-card mode (card 0 only)" || echo "ollama: spread mode"
     ollama ps; vram
-    [[ -f $RUN/next.pid ]] && kill -0 "$(cat "$RUN/next.pid")" 2>/dev/null && echo "next dev: running" || echo "next dev: stopped" ;;
-  *) sed -n '2,7p' "$0"; exit 1 ;;
+    [[ -f $RUN/next.pid ]] && kill -0 "$(cat "$RUN/next.pid")" 2>/dev/null && echo "next dev: running" || echo "next dev: stopped"
+    echo "configured: $MODEL ctx=$NUM_CTX" ;;
+  model)
+    [[ -n ${2:-} ]] || { echo "usage: dev.sh model <name> [ctx]"; exit 1; }
+    ollama stop "$MODEL" 2>/dev/null || true
+    MODEL=$2; NUM_CTX=${3:-$NUM_CTX}
+    printf '{"model": "%s", "num_ctx": %s}\n' "$MODEL" "$NUM_CTX" >"$RUN/local-llm.json"
+    preload ;;
+  *) sed -n '2,8p' "$0"; exit 1 ;;
 esac

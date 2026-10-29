@@ -22,14 +22,26 @@ from pathlib import Path
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from escalation import (
+    ESCALATE,
+    ESCALATE_BUDGET_USD,
+    ESCALATE_MODEL,
+    ESCALATE_TIMEOUT_S,
+    _escalation_cmd,
+    _escalation_prompt,
+    _outside_changes,
+    _parse_claude_json,
+)
+
+
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MODEL = os.environ.get("LOCAL_MODEL", "qwen3-coder-next:q4_K_M")
-# 128k fits in 56 GB across both R9700s with the model; 262144 also fits (60 GB) but leaves ~4 GB spare.
-NUM_CTX = int(os.environ.get("LOCAL_NUM_CTX", "131072"))
+# 256k context: ~60 GB for qwen3-coder-next over both R9700s.
+DEFAULT_MODEL = "qwen3-coder-next:q4_K_M"
+DEFAULT_NUM_CTX = 262144
 NUM_PREDICT = int(os.environ.get("LOCAL_NUM_PREDICT", "16384"))
 TIMEOUT_S = float(os.environ.get("LOCAL_TIMEOUT_S", "1200"))
-# ~4 chars/token: 300k chars of context files is ~75k tokens, leaving room for output in a 128k window.
-MAX_CONTEXT_CHARS = int(os.environ.get("LOCAL_MAX_CONTEXT_CHARS", "300000"))
+# ~4 chars/token: 600k chars of context files is ~150k tokens, leaving room for output in a 256k window.
+MAX_CONTEXT_CHARS = int(os.environ.get("LOCAL_MAX_CONTEXT_CHARS", "600000"))
 MAX_NEED_ROUNDS = 2
 
 
@@ -48,6 +60,39 @@ def _repo_root() -> Path:
 
 ROOT = _repo_root()
 LOG_DIR = ROOT / ".llm-logs"
+SETTINGS_FILE = ROOT / ".dev" / "local-llm.json"
+
+
+def _settings(path: Path | None = None) -> dict:
+    """{"model": str, "num_ctx": int}: SETTINGS_FILE (or `path`), then env LOCAL_MODEL/LOCAL_NUM_CTX, then defaults."""
+    model = os.environ.get("LOCAL_MODEL", DEFAULT_MODEL)
+    num_ctx_str = os.environ.get("LOCAL_NUM_CTX", str(DEFAULT_NUM_CTX))
+    try:
+        num_ctx = int(num_ctx_str)
+    except ValueError:
+        num_ctx = DEFAULT_NUM_CTX
+
+    p = path or SETTINGS_FILE
+    if p.exists():
+        try:
+            data = json.loads(p.read_text())
+            if isinstance(data, dict):
+                if "model" in data and isinstance(data["model"], str) and data["model"]:
+                    model = data["model"]
+                if "num_ctx" in data:
+                    nc = data["num_ctx"]
+                    if isinstance(nc, int):
+                        num_ctx = nc
+                    elif isinstance(nc, str):
+                        try:
+                            num_ctx = int(nc)
+                        except ValueError:
+                            pass
+        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+            pass
+
+    return {"model": model, "num_ctx": num_ctx}
+
 
 mcp = FastMCP("local-llm")
 
@@ -163,18 +208,19 @@ def _chat(
     temperature: float = 0.3,
     num_predict: int = NUM_PREDICT,
 ) -> dict:
+    s = _settings()
     body = {
-        "model": MODEL,
+        "model": s["model"],
         "stream": False,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "options": {
-            "num_ctx": NUM_CTX,
+            "num_ctx": s["num_ctx"],
             "num_predict": num_predict,
             "temperature": temperature,
             "top_p": 0.8,
             "repeat_penalty": 1.1,
         },
-        "keep_alive": "30m",
+        "keep_alive": "60m",
     }
     if fmt is not None:
         body["format"] = fmt
@@ -195,12 +241,13 @@ def _log(kind: str, prompt: str, data: dict) -> str:
 
 
 def _stats(data: dict) -> str:
+    s = _settings()
     out_tok = data.get("eval_count", 0)
     in_tok = data.get("prompt_eval_count", 0)
     eval_s = data.get("eval_duration", 0) / 1e9 or 1
     truncated = " TRUNCATED (hit num_predict)" if data.get("done_reason") == "length" else ""
     return (
-        f"model={MODEL} wall={data['_wall_s']}s in={in_tok}tok out={out_tok}tok "
+        f"model={s['model']} wall={data['_wall_s']}s in={in_tok}tok out={out_tok}tok "
         f"({out_tok / eval_s:.1f} tok/s){truncated}"
     )
 
@@ -208,10 +255,11 @@ def _stats(data: dict) -> str:
 def _metric(kind: str, data: dict, extra: dict | None = None) -> None:
     """Append one JSON line per model call to .llm-logs/metrics.jsonl (offload accounting)."""
     LOG_DIR.mkdir(exist_ok=True)
+    s = _settings()
     row = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "kind": kind,
-        "model": MODEL,
+        "model": s["model"],
         "in_tok": data.get("prompt_eval_count", 0),
         "out_tok": data.get("eval_count", 0),
         "wall_s": data.get("_wall_s", 0),
@@ -419,6 +467,62 @@ def _error_signature(errors: str) -> frozenset[str]:
     return frozenset(sig)
 
 
+def _git_changed() -> set[str]:
+    """Return repo-relative paths from git status --porcelain."""
+    try:
+        proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=ROOT,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return set()
+
+    if proc.returncode != 0:
+        return set()
+
+    changed: set[str] = set()
+    for line in proc.stdout.splitlines():
+        # Format: "XY path" or "XY old_path -> new_path"
+        if not line.strip():
+            continue
+        parts = line.split(maxsplit=1)
+        if len(parts) < 2:
+            continue
+        status_and_path = parts[1]
+        if " -> " in status_and_path:
+            # Rename: keep the new path (after ' -> ')
+            parts_rename = status_and_path.split(" -> ")
+            if len(parts_rename) == 2:
+                changed.add(parts_rename[1].strip())
+            else:
+                changed.add(status_and_path.strip())
+        else:
+            changed.add(status_and_path.strip())
+
+    return changed
+
+
+def _escalate(task: str, target_files: list[str], errors: str) -> dict:
+    """Hand the remaining failures to Claude Code and parse its response."""
+    before = _git_changed()
+    prompt = _escalation_prompt(task, target_files, errors)
+    cmd = _escalation_cmd(prompt, target_files)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=ESCALATE_TIMEOUT_S, cwd=ROOT)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "summary": str(e), "cost_usd": 0.0, "turns": 0, "outside": []}
+
+    res = _parse_claude_json(proc.stdout)
+    after = _git_changed()
+    outside = _outside_changes(before, after, target_files)
+    res["outside"] = outside
+    _metric("escalate", {}, {"task": task[:120], "ok": res.get("ok"), "cost_usd": res.get("cost_usd"), "turns": res.get("turns")})
+    return res
+
+
 @mcp.tool()
 def local_iterate(
     task: str,
@@ -428,11 +532,13 @@ def local_iterate(
     checks: list[str] | None = None,
     test_filter: list[str] | None = None,
     skip_first_write: bool = False,
+    escalate: bool = True,
 ) -> str:
     """Write files with the local LLM, then loop: run checks, feed failures back, fix — until green.
 
     checks: npm scripts to run (default lint, typecheck, test). test_filter: vitest path filters.
     skip_first_write: True to start by checking the files already on disk (fix-only mode).
+    escalate: on STUCK / STILL FAILING, hand the remaining failures to Claude Code (claude -p) once, then re-check.
     Each fix round sees the earlier rounds' errors and notes. If the same failure comes back twice in a row,
     the loop stops early with STUCK so Claude can step in instead of burning rounds.
     """
@@ -476,8 +582,18 @@ def local_iterate(
         ok, errors = _run_checks(checks, test_filter)
         if ok:
             status = "PASSED"
+    if not status.startswith("PASSED") and escalate and ESCALATE:
+        esc = _escalate(task, target_files, errors)
+        ok, errors = _run_checks(checks, test_filter)
+        status = "PASSED (escalated to Claude)" if ok else "STILL FAILING after escalation to Claude"
+        log.append(
+            f"escalation: model={ESCALATE_MODEL} cost=${esc['cost_usd']:.2f} turns={esc['turns']} "
+            f"summary: {esc['summary']}"
+        )
+        if esc["outside"]:
+            log.append("WARNING edited outside target_files: " + ", ".join(esc["outside"]))
     _metric("iterate", {"_wall_s": round(time.time() - t0, 1)}, {"task": task[:120], "status": status, "rounds": len(log)})
-    tail = "" if status == "PASSED" else f"\n\nremaining:\n{errors}"
+    tail = "" if status.startswith("PASSED") else f"\n\nremaining:\n{errors}"
     return f"{status}\n\n" + "\n\n".join(log) + tail
 
 
@@ -625,7 +741,9 @@ def local_status() -> str:
     except httpx.HTTPError as e:
         models = [f"ollama unreachable at {OLLAMA_URL}: {e}"]
     vram = "\n".join(_vram_lines()) or "(no amdgpu VRAM counters found)"
-    return f"configured model: {MODEL} num_ctx={NUM_CTX}\n" + "\n".join(models) + "\n" + vram
+    s = _settings()
+    state = "present" if SETTINGS_FILE.exists() else "absent"
+    return f"configured model: {s['model']} num_ctx={s['num_ctx']}\nsettings: {SETTINGS_FILE} ({state})\n" + "\n".join(models) + "\n" + vram
 
 
 if __name__ == "__main__":

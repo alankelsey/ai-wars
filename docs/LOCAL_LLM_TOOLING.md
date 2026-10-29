@@ -15,7 +15,25 @@ The items below target those failure modes first.
 - `AGENTS.md` is sent with every call, including the "Local model pitfalls" section.
 - Per-call metrics in `.llm-logs/metrics.jsonl`; full prompts/responses in `.llm-logs/*.md`.
 
+## Done since (PR 17)
+- 256k context by default (`.mcp.json` no longer pins 128k); `keep_alive` is 60m everywhere.
+- Runtime model switch: `scripts/dev.sh model <name> [ctx]` writes `.dev/local-llm.json`, read on every call.
+- Automatic hand-off: when `local_iterate` ends STUCK / STILL FAILING it runs `claude -p` once on the remaining
+  failures (Sonnet, `LOCAL_ESCALATE_BUDGET_USD` cap, edits limited to `target_files`), re-checks, and logs an
+  `escalate` metric row with cost. `LOCAL_ESCALATE=0` turns it off. Tests: `npm run test:tools`.
+
 ## Needed — high priority
+
+### 0. Parser: files that contain the output tags
+**Problem:** a whole-file rewrite of `server.py` got cut off, because its CODE_SYSTEM prompt contains a literal
+`</file>`; the non-greedy regex ends the block there. **Build:** match `</file>` only at line start followed by a
+next `<file`/`<edit`/`<notes>` block or end of output, or refuse whole-file writes for such files and ask for edits.
+
+### 0b. Multi-site edits on big files
+**Problem:** on the 650-line `server.py` the model applied 1 of 4–7 requested edits per round, duplicated a
+function, and put code above the names it used. **Build:** split a multi-edit task into one call per edit site
+automatically, or verify after each round that every requested anchor was edited.
+
 
 ### 1. Scoped typecheck
 **Problem:** `npm run typecheck` checks the whole project, so it fails whenever *other* files are mid-change.
