@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // GitHub Pages serves the site under /<repo>; the Pages workflow sets BASE_PATH=/ai-wars.
+  basePath: process.env.BASE_PATH || undefined,
 };
 
 export default nextConfig;
