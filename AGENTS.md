@@ -14,6 +14,10 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 - `src/game/data/` — chips, cities, companies, events as typed constants. Balancing lives here, not in logic.
 - `src/app/` and `src/components/` — UI only. Components read state and dispatch actions; no game rules here.
 
+## Workflow
+- Claude writes specs and the contract tests for tricky logic; the local model implements until they pass.
+  See .claude/skills/ship-pr/SKILL.md.
+
 ## Style
 - Small named functions, explicit types on exports, no `any`, no default exports except Next.js pages/layouts.
 - Money is integer dollars. Round with `Math.ceil` where the spec says "round up", otherwise `Math.round`.
