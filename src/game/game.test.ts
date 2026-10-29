@@ -245,9 +245,28 @@ describe("travel", () => {
       const rng = createRng(rngState);
       const moved: GameState = { ...s, day: 5, currentCityId: CITY_IDS[2], dataCenterUsed: false, tips: [] };
       const priced = { ...moved, market: rollMarket(moved, rng) };
-      const expected = rollRisk(rollEvent(rollTips(priced, rng), rng), rng);
+      const evented = rollEvent(rollTips(priced, rng), rng);
+      const badEvent = evented.pendingEvent !== null && !evented.pendingEvent.good;
+      const expected = badEvent ? evented : rollRisk(evented, rng);
       expect(travel(s, CITY_IDS[2])).toEqual({ ...expected, rngState: rng.state });
     }
+  });
+
+  it("never rolls an uptime risk on a turn with a bad event (one risk per turn)", () => {
+    let bad = 0;
+    let risks = 0;
+    let goodWithRisk = 0;
+    for (let rngState = 1; rngState <= 3000; rngState++) {
+      const after = travel(withInventory(marketState({ rngState }), CHIP, 8), CITY_IDS[1]);
+      const badEvent = after.pendingEvent !== null && !after.pendingEvent.good;
+      if (badEvent) bad++;
+      if (after.pendingRisk) risks++;
+      if (after.pendingRisk && after.pendingEvent?.good) goodWithRisk++;
+      expect(badEvent && after.pendingRisk !== null).toBe(false);
+    }
+    expect(bad).toBeGreaterThan(0);
+    expect(risks).toBeGreaterThan(0);
+    expect(goodWithRisk).toBeGreaterThan(0);
   });
 
   it("does not mutate the input", () => {

@@ -117,7 +117,9 @@ Style: black background, green (#33ff33-ish) monospace, CRT feel; keyboard usabl
   "Hsinchu's fab overproduced Onchip — cheap Onchip everywhere!". Tips are dismissible banners, not dialogs.
 
 ### Uptime (replaces health)
-- Uptime starts at 100%. On every arrival after the event roll, 12% chance of an uptime risk:
+- Uptime starts at 100%. On every arrival after the event roll, 12% chance of an uptime risk — **unless a bad event
+  already fired that arrival (at most one risk per turn: money/market or uptime, never both)**. Good events can
+  still be followed by an uptime risk:
   1. **GPU cluster meltdown** 2. **Ransomware attack** 3. **Viral launch traffic surge**.
   Each threatens a downtime of uniform int 15–35 percentage points.
 - The risk dialog offers: **Give customers token resets** — costs ceil(3% of cash), 50% chance to avoid the downtime;
