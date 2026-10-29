@@ -62,7 +62,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
         const held = newInventory[id] ?? 0;
         const lost = Math.min(held, Math.max(1, Math.ceil(held * pct)));
         newInventory[id] = held - lost;
-        if (newInventory[id] === 0) {
+        if (newInventory[id] === 0 && (state.dataCenterChips[id] ?? 0) === 0) {
           newAvgCost[id] = 0;
         }
         parts.push(`${lost} ${getChip(id).name}`);
@@ -122,9 +122,10 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
       const chip = rng.pick(state.chipIds);
       const n = rng.int(d.truckMin, d.truckMax);
       const held = newInventory[chip] ?? 0;
+      const owned = held + (state.dataCenterChips[chip] ?? 0);
       newInventory[chip] = held + n;
       const avg = state.avgCost[chip];
-      newAvgCost[chip] = (avg * held) / (held + n);
+      newAvgCost[chip] = (avg * owned) / (owned + n);
       message = `A pallet fell off a truck... ${n} pallet(s) of ${getChip(chip).name} are now yours.`;
       break;
     }

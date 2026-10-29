@@ -1,7 +1,7 @@
 import type { GameState } from "@/game/types";
 import { newGame, buy, sell, travel, dismissEvent } from "@/game/game";
 import { attemptTokenReset, acceptDowntime, dismissRisk } from "@/game/risks";
-import { deposit, withdraw } from "@/game/datacenter";
+import { deposit, withdraw, depositChips, withdrawChips } from "@/game/datacenter";
 
 export type AppState = { screen: "splash" } | { screen: "game"; game: GameState };
 import type { Difficulty } from "@/game/types";
@@ -17,6 +17,8 @@ export type AppAction =
   | { type: "dismissRisk" }
   | { type: "deposit"; amount: number }
   | { type: "withdraw"; amount: number }
+  | { type: "depositChips"; chipId: string; qty: number }
+  | { type: "withdrawChips"; chipId: string; qty: number }
   | { type: "reset" };
 
 export const initialAppState: AppState = { screen: "splash" };
@@ -55,5 +57,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return step(state, (g) => deposit(g, action.amount));
     case "withdraw":
       return step(state, (g) => withdraw(g, action.amount));
+    case "depositChips":
+      return step(state, (g) => depositChips(g, action.chipId, action.qty));
+    case "withdrawChips":
+      return step(state, (g) => withdrawChips(g, action.chipId, action.qty));
   }
 }

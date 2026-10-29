@@ -34,7 +34,7 @@ balance pass can change them without touching logic.
 - Day starts at 1. Travelling to a *different* city is the only action that advances the day (+1).
   The current city's button is disabled.
 - On arrival: roll prices and stock, then roll at most one event (see below), then show its dialog if any.
-- On day 30 a banner warns: "Last day before the IPO — unsold chips are worth nothing." There is no
+- On day 30 (Normal difficulty only; Hard and Brutal give no warning) a banner warns: "Last day before the IPO — unsold chips are worth nothing." There is no
   automatic sell-off.
 - Travelling from day 30 ends the game (this is "turn 31"). No event, no new prices — straight to the end screen.
 
@@ -104,8 +104,11 @@ Style: black background, green (#33ff33-ish) monospace, CRT feel; keyboard usabl
 
 ### Data center (the bank)
 - A second balance, `dataCenter`, start $0. Deposit/withdraw whole dollars from any city.
-- **One data-center transaction per day** (a deposit *or* a withdrawal); travelling resets it.
-- Risks never touch it: fines and token resets only take pocket cash. No interest.
+- It also stores chips (`dataCenterChips`, pallets per chip). Stored chips can't be sold; retrieve them first.
+- **One data-center transaction per day** in total: cash or chips, deposit or withdrawal; travelling resets it.
+- Risks never touch it: fines and token resets only take pocket cash, missing pallets only take on-hand chips. No interest.
+- Chips (on hand or stored) are worth nothing until sold; only data center *cash* counts toward net worth.
+- A chip's average cost covers all owned pallets, on hand and stored.
 
 ### Net worth
 - `netWorth = cash + dataCenter − debt`. Can be negative (shown red) even with cash in hand.

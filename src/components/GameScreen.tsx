@@ -15,6 +15,17 @@ import { getCity } from "@/game/data/cities";
 import { getRisk } from "@/game/data/risks";
 import { isLastDay } from "@/game/game";
 import { tokenResetCost } from "@/game/risks";
+
+function LastDayBanner({ game }: { game: GameState }): JSX.Element | null {
+  if (isLastDay(game) && game.difficulty === "normal") {
+    return (
+      <p className={styles.banner} role="status">
+        Last day before the IPO — unsold chips are worth nothing.
+      </p>
+    );
+  }
+  return null;
+}
 import { formatMoney } from "@/game/format";
 
 export interface GameScreenProps {
@@ -34,11 +45,7 @@ export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
   return (
     <main className={`${styles.screen} ${styles.gameScreen}`}>
       <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} />
-      {isLastDay(game) && (
-        <p className={styles.banner} role="status">
-          Last day before the IPO — unsold chips are worth nothing.
-        </p>
-      )}
+      <LastDayBanner game={game} />
       <TipBanners tips={game.tips} day={game.day} />
       <MarketList game={game} onTrade={(chipId, mode) => setTrade({ chipId, mode })} />
       <TravelBar game={game} dispatch={dispatch} />
@@ -65,6 +72,14 @@ export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
           }}
           onWithdraw={(amount) => {
             dispatch({ type: "withdraw", amount });
+            setBankOpen(false);
+          }}
+          onDepositChips={(chipId, qty) => {
+            dispatch({ type: "depositChips", chipId, qty });
+            setBankOpen(false);
+          }}
+          onWithdrawChips={(chipId, qty) => {
+            dispatch({ type: "withdrawChips", chipId, qty });
             setBankOpen(false);
           }}
           onClose={() => setBankOpen(false)}

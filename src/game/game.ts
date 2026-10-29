@@ -57,6 +57,7 @@ export function newGame(opts: NewGameOptions): GameState {
     inventory: Object.fromEntries(chipIds.map((id) => [id, 0])) as Record<string, number>,
     avgCost: Object.fromEntries(chipIds.map((id) => [id, 0])) as Record<string, number>,
     dataCenter: 0,
+    dataCenterChips: Object.fromEntries(chipIds.map((id) => [id, 0])) as Record<string, number>,
     dataCenterUsed: false,
     uptime: CONFIG.startUptime,
     tips: [],
@@ -90,12 +91,14 @@ export function buy(state: GameState, chipId: string, qty: number): GameState {
 
   const entry = state.market[chipId];
 
-  const held = state.inventory[chipId] ?? 0;
+  const onHand = state.inventory[chipId] ?? 0;
+  const stored = state.dataCenterChips[chipId] ?? 0;
+  const owned = onHand + stored;
   const avg = state.avgCost[chipId];
   const newAvgCost =
-    held + qty === 0
+    owned + qty === 0
       ? 0
-      : (avg * held + entry.price * qty) / (held + qty);
+      : (avg * owned + entry.price * qty) / (owned + qty);
 
   return {
     ...state,
@@ -106,7 +109,7 @@ export function buy(state: GameState, chipId: string, qty: number): GameState {
     },
     inventory: {
       ...state.inventory,
-      [chipId]: held + qty,
+      [chipId]: onHand + qty,
     },
     avgCost: {
       ...state.avgCost,
@@ -126,10 +129,12 @@ export function sell(state: GameState, chipId: string, qty: number): GameState {
   }
 
   const newCash = state.cash + state.market[chipId].price * qty;
-  const newInventory = (state.inventory[chipId] ?? 0) - qty;
+  const onHand = state.inventory[chipId] ?? 0;
+  const stored = state.dataCenterChips[chipId] ?? 0;
+  const newInventory = onHand - qty;
 
   let newAvgCost = state.avgCost[chipId];
-  if (newInventory === 0) {
+  if (newInventory + stored === 0) {
     newAvgCost = 0;
   }
 

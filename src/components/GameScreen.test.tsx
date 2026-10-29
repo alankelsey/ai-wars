@@ -26,3 +26,32 @@ describe("GameScreen risk result", () => {
     expect(screen.getByText("Downtime hit. Uptime is now 80%.")).toBeTruthy();
   });
 });
+
+describe("last-day warning", () => {
+  const text = "Last day before the IPO — unsold chips are worth nothing.";
+  it("shows on Normal", () => {
+    render(<GameScreen game={{ ...makeState(), day: 30, difficulty: "normal" }} dispatch={() => {}} />);
+    expect(screen.getByText(text)).toBeTruthy();
+  });
+  it("is hidden on Hard and Brutal", () => {
+    render(<GameScreen game={{ ...makeState(), day: 30, difficulty: "hard" }} dispatch={() => {}} />);
+    render(<GameScreen game={{ ...makeState(), day: 30, difficulty: "brutal" }} dispatch={() => {}} />);
+    expect(screen.queryByText(text)).toBeNull();
+  });
+});
+
+describe("market list stored chips", () => {
+  it("shows stored pallets next to held ones", () => {
+    const base = makeState();
+    const id = base.chipIds[0];
+    const game: GameState = {
+      ...base,
+      market: Object.fromEntries(base.chipIds.map((c) => [c, { price: 100, stock: 10, buyBlocked: false }])),
+      inventory: { ...base.inventory, [id]: 2 },
+      dataCenterChips: { ...base.dataCenterChips, [id]: 5 },
+    };
+    render(<GameScreen game={game} dispatch={() => {}} />);
+    expect(screen.getByText("2 held")).toBeTruthy();
+    expect(screen.getByText("5 stored")).toBeTruthy();
+  });
+});
