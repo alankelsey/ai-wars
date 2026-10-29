@@ -187,12 +187,17 @@ export function travel(state: GameState, cityId: string): GameState {
   const priced = { ...moved, market: rollMarket(moved, rng) };
   const tipped = rollTips(priced, rng);
   const rolled = rollEvent(tipped, rng);
-  const risked = rollRisk(rolled, rng);
+  // At most one risk per turn: a bad event (money or market) rules out an uptime risk.
+  const risked = hasBadEvent(rolled) ? rolled : rollRisk(rolled, rng);
 
   return {
     ...risked,
     rngState: rng.state,
   };
+}
+
+function hasBadEvent(state: GameState): boolean {
+  return state.pendingEvent !== null && !state.pendingEvent.good;
 }
 
 export function isLastDay(state: GameState): boolean {
