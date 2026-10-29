@@ -8,15 +8,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 MODEL=${LOCAL_MODEL:-qwen3-coder-next:q4_K_M}
+NUM_CTX=${LOCAL_NUM_CTX:-131072}   # 128k = 56 GB over both cards; 262144 fits too (60 GB)
 OLLAMA=${OLLAMA_URL:-http://localhost:11434}
 GPU_SERVICES=${GPU_SERVICES:-$HOME/projects/gpu-services}
 DROPDIR=/etc/systemd/system/ollama.service.d
 RUN=$ROOT/.dev; mkdir -p "$RUN"
 
-vram() { rocm-smi --showmeminfo vram 2>/dev/null | grep -i 'used' || true; }
+vram() {  # rocm-smi isn't installed; read amdgpu sysfs, skipping the iGPU
+  for d in /sys/class/drm/card[0-9]*/device; do
+    [[ -r $d/mem_info_vram_total ]] || continue
+    awk -v n="${d%/device}" -v u="$(cat "$d/mem_info_vram_used")" '$1 > 8e9 {printf "%s: %.1f / %.1f GB\n", n, u/1e9, $1/1e9}' "$d/mem_info_vram_total"
+  done
+}
 
 spread_mode() {
-  if [[ -f $DROPDIR/spread.conf && ! -f $DROPDIR/card0.conf ]]; then
+  if [[ ! -f $DROPDIR/card0.conf ]] && cmp -s "$ROOT/scripts/ollama-spread.conf" "$DROPDIR/spread.conf"; then
     echo "ollama already in spread mode"; return
   fi
   echo "switching ollama to spread mode (sudo)..."
@@ -29,7 +35,7 @@ spread_mode() {
 
 preload() {
   echo "loading $MODEL (first load takes ~30-60s)..."
-  curl -sf "$OLLAMA/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"\",\"keep_alive\":\"60m\",\"options\":{\"num_ctx\":32768}}" >/dev/null
+  curl -sf "$OLLAMA/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"\",\"keep_alive\":\"60m\",\"options\":{\"num_ctx\":$NUM_CTX}}" >/dev/null
   ollama ps
   vram
 }

@@ -2,8 +2,27 @@
   "mcpServers": {
     "local-llm": {
       "command": "uv",
-      "args": ["run", "--script", "tools/local-llm-mcp/server.py"],
-      "env": { "LOCAL_MODEL": "qwen3-coder-next:q4_K_M" }
+      "args": [
+        "run",
+        "--script",
+        "tools/local-llm-mcp/server.py"
+      ],
+      "env": {
+        "LOCAL_MODEL": "qwen3-coder-next:q4_K_M",
+        "LOCAL_NUM_CTX": "131072"
+      }
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.83",
+        "--headless",
+        "--executable-path",
+        "/usr/bin/google-chrome",
+        "--viewport-size",
+        "1280,800"
+      ]
     }
   }
 }

@@ -24,10 +24,13 @@ from mcp.server.fastmcp import FastMCP
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MODEL = os.environ.get("LOCAL_MODEL", "qwen3-coder-next:q4_K_M")
-NUM_CTX = int(os.environ.get("LOCAL_NUM_CTX", "32768"))
+# 128k fits in 56 GB across both R9700s with the model; 262144 also fits (60 GB) but leaves ~4 GB spare.
+NUM_CTX = int(os.environ.get("LOCAL_NUM_CTX", "131072"))
 NUM_PREDICT = int(os.environ.get("LOCAL_NUM_PREDICT", "16384"))
 TIMEOUT_S = float(os.environ.get("LOCAL_TIMEOUT_S", "1200"))
-MAX_CONTEXT_CHARS = int(os.environ.get("LOCAL_MAX_CONTEXT_CHARS", "80000"))
+# ~4 chars/token: 300k chars of context files is ~75k tokens, leaving room for output in a 128k window.
+MAX_CONTEXT_CHARS = int(os.environ.get("LOCAL_MAX_CONTEXT_CHARS", "300000"))
+MAX_NEED_ROUNDS = 2
 
 
 def _repo_root() -> Path:
@@ -51,17 +54,34 @@ mcp = FastMCP("local-llm")
 CODE_SYSTEM = """You are a senior TypeScript/React engineer working in a Next.js + Vitest repo.
 You receive a task, project conventions, and the current contents of relevant files.
 Write complete, working, idiomatic code. No placeholders, no TODOs, no elided sections.
+Import every symbol you use.
 
-OUTPUT FORMAT (strict):
-For every file you create or change, output the FULL new file content like this:
+OUTPUT FORMAT (strict). Use one of these per change:
+
+1. New file, or rewriting most of a file — the FULL content:
 <file path="relative/path/from/repo/root.ts">
 ...entire file content...
 </file>
-After all files, output one block:
+
+2. Small change to an existing file — PREFER THIS for fixes. One block per change; <search> must copy
+lines from the current file EXACTLY (including indentation) and match exactly once:
+<edit path="relative/path.ts">
+<search>
+exact existing lines
+</search>
+<replace>
+new lines
+</replace>
+</edit>
+
+3. If you cannot do the task without seeing another repo file (a type, a helper), output ONLY
+<need path="relative/path.ts"/> lines (one per file) and nothing else; you will be called again with them.
+
+After all files/edits, output one block:
 <notes>
 Short bullet list: what you did, assumptions, anything the reviewer should check.
 </notes>
-Output nothing outside <file> and <notes> blocks. Do not wrap file content in markdown fences.
+Output nothing outside these blocks. Do not wrap content in markdown fences.
 Write each file exactly once, then stop. Never output a second version of a file.
 Only write the files listed as writable; other files are read-only context."""
 
@@ -69,6 +89,9 @@ REVIEW_SYSTEM = """You are a meticulous code reviewer. Review the diff for real 
 correctness bugs, spec violations, broken edge cases, missing tests for important logic,
 type errors, React state bugs, accessibility problems, and needless complexity.
 Do not report style nits or praise. Every finding must name a concrete failure scenario.
+Judge against this repo's stated environment (AGENTS.md / README: one Linux box, 2x AMD GPUs, local dev).
+Portability to other OSes, GPUs, CI images or hardware is out of scope, and so are deliberate design
+choices that are documented in comments or the spec.
 For each finding, `evidence` must be one line of code copied EXACTLY from the file as it is now
 (not from removed diff lines). Before reporting, re-read that line and confirm the defect is really there:
 check that imports you think are missing are not already present. If unsure, leave it out.
@@ -182,7 +205,28 @@ def _stats(data: dict) -> str:
     )
 
 
+def _metric(kind: str, data: dict, extra: dict | None = None) -> None:
+    """Append one JSON line per model call to .llm-logs/metrics.jsonl (offload accounting)."""
+    LOG_DIR.mkdir(exist_ok=True)
+    row = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "kind": kind,
+        "model": MODEL,
+        "in_tok": data.get("prompt_eval_count", 0),
+        "out_tok": data.get("eval_count", 0),
+        "wall_s": data.get("_wall_s", 0),
+        "truncated": data.get("done_reason") == "length",
+        **(extra or {}),
+    }
+    with (LOG_DIR / "metrics.jsonl").open("a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
 FILE_RE = re.compile(r'<file path="([^"]+)">\n?(.*?)\n?</file>', re.S)
+EDIT_RE = re.compile(
+    r'<edit path="([^"]+)">\s*<search>\n?(.*?)\n?</search>\s*<replace>\n?(.*?)\n?</replace>\s*</edit>', re.S
+)
+NEED_RE = re.compile(r'<need path="([^"]+)"\s*/>')
 NOTES_RE = re.compile(r"<notes>(.*?)</notes>", re.S)
 FENCE_RE = re.compile(r"^```[\w-]*\n(.*?)\n```$", re.S)
 
@@ -194,70 +238,158 @@ def local_code(
     context_files: list[str] | None = None,
     allow_other_files: bool = False,
 ) -> str:
-    """Have the local LLM write or rewrite files in the repo.
+    """Have the local LLM write or edit files in the repo.
 
     task: precise spec with acceptance criteria.
-    target_files: repo-relative paths the model may create/overwrite (current contents are sent).
+    target_files: repo-relative paths the model may create/change (current contents are sent).
     context_files: extra repo-relative files to show read-only (types, specs, neighbours).
     allow_other_files: if False, files outside target_files are skipped and reported.
-    Returns a summary (files written, line counts, model notes, log path) — not the code.
+    The model may answer with whole files, search/replace edits, or <need> requests for more files
+    (fetched automatically, up to MAX_NEED_ROUNDS times).
+    Returns a summary (files written, edits applied/failed, model notes, log path) — not the code.
     """
-    context_files = context_files or []
-    prompt = "\n\n".join(
-        s
-        for s in [
-            f"<conventions>\n{_conventions()}\n</conventions>" if _conventions() else "",
-            f"<task>\n{task}\n</task>",
-            "Files you may write: " + ", ".join(target_files),
-            "<read_only_context>\n" + _read_files(context_files) + "\n</read_only_context>"
-            if context_files
-            else "",
-            "<current_target_files>\n" + _read_files(target_files) + "\n</current_target_files>",
-        ]
-        if s
-    )
-    data = _chat(CODE_SYSTEM, prompt)
-    log = _log("code", prompt, data)
-    content = data.get("message", {}).get("content", "")
-
-    written, skipped = [], []
-    allowed = {str(_safe_path(t)) for t in target_files}
-    blocks = FILE_RE.findall(content)
-    seen = [rel for rel, _ in blocks]
-    dupes = sorted({r for r in seen if seen.count(r) > 1})
-    for rel, body in blocks:
-        m = FENCE_RE.match(body.strip())
-        if m:
-            body = m.group(1)
-        try:
-            p = _safe_path(rel)
-        except ValueError as e:
-            skipped.append(f"{rel} ({e})")
+    context_files = list(context_files or [])
+    auto = _auto_context(target_files, context_files)
+    context_files += auto
+    fetched: list[str] = []
+    for _ in range(MAX_NEED_ROUNDS + 1):
+        prompt = _code_prompt(task, target_files, context_files)
+        data = _chat(CODE_SYSTEM, prompt)
+        log = _log("code", prompt, data)
+        content = data.get("message", {}).get("content", "")
+        needs = [n for n in NEED_RE.findall(content) if n not in context_files and n not in target_files]
+        if needs and not FILE_RE.search(content) and not EDIT_RE.search(content):
+            ok_needs = [n for n in needs if _safe_exists(n)]
+            if not ok_needs:
+                break
+            context_files += ok_needs
+            fetched += ok_needs
             continue
-        if str(p) not in allowed and not allow_other_files:
-            skipped.append(f"{rel} (not in target_files)")
-            continue
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(body.rstrip("\n") + "\n")
-        written.append(f"{rel} ({body.count(chr(10)) + 1} lines)")
+        break
+    result = _apply_output(content, target_files, allow_other_files)
+    _metric("code", data, {"task": task[:120], **{k: len(v) for k, v in result.items()}})
 
     notes = NOTES_RE.search(content)
-    missing = [t for t in target_files if not any(w.startswith(t + " ") for w in written)]
-    lines = [
-        _stats(data),
-        "written: " + (", ".join(written) or "NONE"),
-    ]
+    lines = [_stats(data)]
+    if auto:
+        lines.append("auto-included imports: " + ", ".join(auto))
+    if fetched:
+        lines.append("model requested and got: " + ", ".join(fetched))
+    lines.append("written: " + (", ".join(result["written"]) or "NONE"))
+    if result["edited"]:
+        lines.append("edited: " + ", ".join(result["edited"]))
+    if result["edit_failed"]:
+        lines.append("EDITS FAILED (search text not found once): " + "; ".join(result["edit_failed"]))
+    touched = {w.split(" ")[0] for w in result["written"] + result["edited"]}
+    missing = [t for t in target_files if t not in touched]
     if missing:
-        lines.append("not written: " + ", ".join(missing))
-    if skipped:
-        lines.append("skipped: " + "; ".join(skipped))
-    if dupes:
-        lines.append("WARNING model emitted these files more than once (last copy kept): " + ", ".join(dupes))
-    if not written:
+        lines.append("not touched: " + ", ".join(missing))
+    if result["skipped"]:
+        lines.append("skipped: " + "; ".join(result["skipped"]))
+    if result["dupes"]:
+        lines.append("WARNING model emitted these files more than once (last copy kept): " + ", ".join(result["dupes"]))
+    if not touched:
         lines.append("raw output head: " + content[:600])
     lines.append("notes: " + (notes.group(1).strip() if notes else "(none)"))
     lines.append(f"log: {log}")
     return "\n".join(lines)
+
+
+def _safe_exists(rel: str) -> bool:
+    try:
+        return _safe_path(rel).is_file()
+    except ValueError:
+        return False
+
+
+IMPORT_RE = re.compile(r"""^\s*import\s[^'"]*?from\s+['"]((?:\.{1,2}/|@/)[^'"]+)['"]""", re.M)
+
+
+def _auto_context(target_files: list[str], context_files: list[str]) -> list[str]:
+    """Local modules imported by the target files, so the model sees real types instead of guessing."""
+    found: list[str] = []
+    for rel in target_files:
+        p = _safe_path(rel)
+        if not p.is_file():
+            continue
+        for spec in IMPORT_RE.findall(p.read_text(errors="replace")):
+            base = (ROOT / "src" / spec[2:]) if spec.startswith("@/") else (p.parent / spec)
+            for cand in (base, *(base.with_name(base.name + ext) for ext in (".ts", ".tsx")),
+                         base / "index.ts", base / "index.tsx"):
+                if cand.is_file():
+                    r = str(cand.resolve().relative_to(ROOT))
+                    if r not in target_files and r not in context_files and r not in found:
+                        found.append(r)
+                    break
+    return found
+
+
+def _code_prompt(task: str, target_files: list[str], context_files: list[str]) -> str:
+    conventions = _conventions()
+    parts = [
+        f"<conventions>\n{conventions}\n</conventions>" if conventions else "",
+        f"<task>\n{task}\n</task>",
+        "Files you may write: " + ", ".join(target_files),
+        "<read_only_context>\n" + _read_files(context_files) + "\n</read_only_context>" if context_files else "",
+        "<current_target_files>\n" + _read_files(target_files) + "\n</current_target_files>",
+    ]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _apply_output(content: str, target_files: list[str], allow_other_files: bool) -> dict[str, list[str]]:
+    """Write <file> blocks and apply <edit> blocks; return what happened, by category."""
+    res: dict[str, list[str]] = {"written": [], "edited": [], "edit_failed": [], "skipped": [], "dupes": []}
+    allowed = {str(_safe_path(t)) for t in target_files}
+
+    def check(rel: str) -> Path | None:
+        try:
+            p = _safe_path(rel)
+        except ValueError as e:
+            res["skipped"].append(f"{rel} ({e})")
+            return None
+        if str(p) not in allowed and not allow_other_files:
+            res["skipped"].append(f"{rel} (not in target_files)")
+            return None
+        return p
+
+    blocks = FILE_RE.findall(content)
+    seen = [rel for rel, _ in blocks]
+    res["dupes"] = sorted({r for r in seen if seen.count(r) > 1})
+    for rel, body in blocks:
+        m = FENCE_RE.match(body.strip())
+        if m:
+            body = m.group(1)
+        p = check(rel)
+        if p is None:
+            continue
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body.rstrip("\n") + "\n")
+        res["written"].append(f"{rel} ({body.count(chr(10)) + 1} lines)")
+
+    edit_counts: dict[str, int] = {}
+    for rel, search, replace in EDIT_RE.findall(content):
+        p = check(rel)
+        if p is None:
+            continue
+        if not p.exists():
+            res["edit_failed"].append(f"{rel}: file does not exist (use <file>)")
+            continue
+        text = p.read_text()
+        n = text.count(search)
+        if n != 1:
+            # tolerate trailing-whitespace differences only
+            stripped = "\n".join(l.rstrip() for l in text.split("\n"))
+            s2 = "\n".join(l.rstrip() for l in search.split("\n"))
+            if stripped.count(s2) == 1:
+                text, search = stripped, s2
+            else:
+                first = search.strip().splitlines()[0][:80] if search.strip() else ""
+                res["edit_failed"].append(f"{rel}: search matched {n}x, starts '{first}'")
+                continue
+        p.write_text(text.replace(search, replace, 1))
+        edit_counts[rel] = edit_counts.get(rel, 0) + 1
+    res["edited"] = [f"{rel} ({n} edit{'s' if n > 1 else ''})" for rel, n in edit_counts.items()]
+    return res
 
 
 def _run_checks(checks: list[str], test_filter: list[str]) -> tuple[bool, str]:
@@ -277,6 +409,16 @@ def _run_checks(checks: list[str], test_filter: list[str]) -> tuple[bool, str]:
     return not failures, "\n\n".join(failures)
 
 
+def _error_signature(errors: str) -> frozenset[str]:
+    """Normalise check output so 'same failure again' can be detected across rounds."""
+    sig = set()
+    for line in errors.splitlines():
+        line = re.sub(r"\(\d+,\d+\)|:\d+:\d+|\d+(\.\d+)?m?s\b|Start at.*|Duration.*", "", line).strip()
+        if re.search(r"error|fail|×|warning|expected", line, re.I):
+            sig.add(line)
+    return frozenset(sig)
+
+
 @mcp.tool()
 def local_iterate(
     task: str,
@@ -291,27 +433,52 @@ def local_iterate(
 
     checks: npm scripts to run (default lint, typecheck, test). test_filter: vitest path filters.
     skip_first_write: True to start by checking the files already on disk (fix-only mode).
-    Returns a per-round log and whether everything passed.
+    Each fix round sees the earlier rounds' errors and notes. If the same failure comes back twice in a row,
+    the loop stops early with STUCK so Claude can step in instead of burning rounds.
     """
     checks = checks or ["lint", "typecheck", "test"]
     test_filter = test_filter or []
-    log = []
+    log: list[str] = []
+    history: list[str] = []
+    prev_sig: frozenset[str] | None = None
+    t0 = time.time()
     if not skip_first_write:
         log.append("round 0 (write):\n" + local_code(task, target_files, context_files))
+    status, errors = "STILL FAILING after max_rounds", ""
     for rnd in range(1, max_rounds + 1):
         ok, errors = _run_checks(checks, test_filter)
         if ok:
+            status = "PASSED"
             log.append(f"round {rnd}: all checks pass ({', '.join(checks)})")
-            return "PASSED\n\n" + "\n\n".join(log)
-        fix_task = (
-            f"{task}\n\n---\nThe files you wrote fail these checks. Fix the root cause in the target files "
-            f"(do not weaken or delete tests to make them pass unless the test itself contradicts the spec; "
-            f"if so, say so in <notes>). Add any missing imports.\n\n{errors}"
+            break
+        sig = _error_signature(errors)
+        if prev_sig is not None and sig == prev_sig:
+            status = "STUCK (same failures two rounds in a row)"
+            log.append(f"round {rnd}: same failures as last round; stopping")
+            break
+        prev_sig = sig
+        earlier = (
+            "\n\nEarlier rounds (your previous fixes did NOT solve these; try a different approach):\n"
+            + "\n".join(history[-3:])
+            if history
+            else ""
         )
-        log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n" + local_code(fix_task, target_files, context_files))
-    ok, errors = _run_checks(checks, test_filter)
-    status = "PASSED" if ok else "STILL FAILING after max_rounds"
-    return f"{status}\n\n" + "\n\n".join(log) + ("" if ok else f"\n\nremaining:\n{errors}")
+        fix_task = (
+            f"{task}\n\n---\nThe target files currently fail these checks. Fix the root cause, using <edit> blocks "
+            f"for small changes. Do not weaken or delete tests unless the test contradicts the spec (then say so "
+            f"in <notes>). Add any missing imports.{earlier}\n\nCurrent failures (round {rnd}):\n{errors}"
+        )
+        out = local_code(fix_task, target_files, context_files)
+        notes = out.split("notes: ", 1)[-1].split("\nlog: ")[0][:400]
+        history.append(f"- round {rnd}: {len(sig)} failing lines, e.g. {sorted(sig)[:3]}; your notes: {notes}")
+        log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n{out}")
+    else:
+        ok, errors = _run_checks(checks, test_filter)
+        if ok:
+            status = "PASSED"
+    _metric("iterate", {"_wall_s": round(time.time() - t0, 1)}, {"task": task[:120], "status": status, "rounds": len(log)})
+    tail = "" if status == "PASSED" else f"\n\nremaining:\n{errors}"
+    return f"{status}\n\n" + "\n\n".join(log) + tail
 
 
 @mcp.tool()
@@ -351,6 +518,7 @@ def local_review(base: str = "main", focus: str = "", context_files: list[str] |
     content = data.get("message", {}).get("content", "")
     kept, dropped = _check_evidence(content)
     confirmed, rejected = _verify_findings(kept, focus)
+    _metric("review", data, {"raw": len(kept) + len(dropped), "confirmed": len(confirmed)})
     return (
         f"{_stats(data)}\nlog: {log}\n"
         f"dropped {len(dropped)} finding(s) whose evidence line is not in the file: "
@@ -432,6 +600,18 @@ def local_ask(prompt: str, context_files: list[str] | None = None) -> str:
     return f"{_stats(data)}\n\n{data.get('message', {}).get('content', '')}"
 
 
+def _vram_lines() -> list[str]:
+    """Per-card VRAM from amdgpu sysfs (rocm-smi is not installed on this box)."""
+    out = []
+    for dev in sorted(Path("/sys/class/drm").glob("card[0-9]*/device")):
+        used, total = dev / "mem_info_vram_used", dev / "mem_info_vram_total"
+        if used.exists() and total.exists():
+            t = int(total.read_text())
+            if t > 8e9:  # skip the iGPU
+                out.append(f"{dev.parent.name}: {int(used.read_text()) / 1e9:.1f} / {t / 1e9:.1f} GB")
+    return out
+
+
 @mcp.tool()
 def local_status() -> str:
     """Show loaded Ollama models and per-GPU VRAM use."""
@@ -444,13 +624,7 @@ def local_status() -> str:
         ] or ["(no models loaded)"]
     except httpx.HTTPError as e:
         models = [f"ollama unreachable at {OLLAMA_URL}: {e}"]
-    try:
-        vram = subprocess.run(
-            ["rocm-smi", "--showmeminfo", "vram"], capture_output=True, text=True, timeout=10
-        ).stdout
-        vram = "\n".join(l for l in vram.splitlines() if "Used" in l)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        vram = "(rocm-smi unavailable)"
+    vram = "\n".join(_vram_lines()) or "(no amdgpu VRAM counters found)"
     return f"configured model: {MODEL} num_ctx={NUM_CTX}\n" + "\n".join(models) + "\n" + vram
 
 

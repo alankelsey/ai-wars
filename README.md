@@ -25,5 +25,15 @@ scripts/dev.sh restore  # back to per-card mode (gpu-services)
 tools/local-llm-mcp/cli.py status   # same tools as the MCP server, from a shell
 ```
 
-Start Claude Code from this directory to pick up `.mcp.json` (tools: `local_code`, `local_review`,
-`local_ask`, `local_status`). Raw model output is logged to `.llm-logs/` (gitignored).
+Start Claude Code from this directory to pick up `.mcp.json` and the `/ship-pr` skill.
+
+| Tool | What it does |
+|---|---|
+| `local_code` | Model writes whole files or search/replace edits; target files' imports are added as context automatically |
+| `local_iterate` | Write → lint/typecheck/test → feed failures back, with history; stops early when stuck |
+| `local_review` | Diff review → evidence check → second-pass verifier; only confirmed findings return |
+| `local_ask`, `local_status` | Free-form question; loaded model + per-card VRAM |
+| `playwright` MCP / `scripts/screenshot.sh` | Headless screenshots of the dev server via system Chrome |
+
+Context window: 128k by default (`LOCAL_NUM_CTX`; 56 GB across both cards; 262144 also fits at 60 GB).
+Raw model output goes to `.llm-logs/`, one JSON line per call in `.llm-logs/metrics.jsonl` (both gitignored).
