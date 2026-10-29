@@ -1,3 +1,4 @@
+// Mock definitions: prototype game metadata and routes for the landing page.
 export type MockStatus = "live" | "testing" | "retired";
 
 export interface MockDef {

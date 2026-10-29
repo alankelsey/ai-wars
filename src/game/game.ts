@@ -1,3 +1,4 @@
+// Core game logic: newGame, buy, sell, travel, interest accrual, end states.
 import type { GameState } from "./types";
 import { createRng } from "./rng";
 import { CONFIG } from "./data/config";

@@ -165,3 +165,118 @@ def test_iterate_no_escalation_when_passing_or_disabled(monkeypatch):
     calls = _fake_loop(monkeypatch, [(False, "Error: boom"), (False, "Error: boom")], ESC_OK)
     out = server.local_iterate("task", ["src/a.ts"], checks=["test"], escalate=False)
     assert out.startswith("STUCK") and calls["escalate"] == 0
+
+
+# --- PR 24 wiring: conventions, code map, shrink guard, anchors ----------------
+
+def test_code_prompt_sends_trimmed_conventions_then_codemap_then_task():
+    p = server._code_prompt("THE TASK", ["src/game/rng.ts"], [])
+    assert "<codemap>\nsrc/" in p and "src/game/rng.ts — " in p
+    assert "## Local model pitfalls" in p
+    assert "nextjs-agent-rules" not in p and "## Workflow" not in p
+    assert p.index("<conventions>") < p.index("<codemap>") < p.index("<task>\nTHE TASK")
+
+
+def test_code_prompt_for_python_targets_has_codemap_but_no_conventions():
+    # server.py's own source (sent as a target file) contains the text "<conventions>", so check the prompt start
+    p = server._code_prompt("T", ["tools/local-llm-mcp/server.py"], [])
+    assert p.startswith("<codemap>\nsrc/")
+    assert "## Local model pitfalls" not in p
+
+
+def _repo(tmp_path, monkeypatch, files: dict[str, str]):
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+
+
+BIG = "\n".join(f"line {i}" for i in range(40)) + "\n"
+
+
+def test_apply_output_refuses_whole_file_write_that_loses_most_of_a_file(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"big.py": BIG})
+    res = server._apply_output('<file path="big.py">\nline 0\nline 1\n</file>', ["big.py"], False)
+    assert res["written"] == []
+    assert res["refused"] == ["big.py: refused whole-file write (41 -> 3 lines); use <edit> blocks for changes to existing files"]
+    assert (tmp_path / "big.py").read_text() == BIG
+
+
+def test_apply_output_still_writes_new_and_growing_files(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"small.py": "a\n"})
+    out = '<file path="new.py">\nx = 1\n</file>\n<file path="small.py">\na\nb\n</file>'
+    res = server._apply_output(out, ["new.py", "small.py"], False)
+    assert res["refused"] == []
+    assert (tmp_path / "new.py").read_text() == "x = 1\n"
+    assert (tmp_path / "small.py").read_text() == "a\nb\n"
+
+
+def test_local_code_reports_refused_writes(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"big.py": BIG})
+    reply = {"message": {"content": '<file path="big.py">\nx\n</file>\n<notes>\n- n\n</notes>'}}
+    monkeypatch.setattr(server, "_chat", lambda *a, **k: reply)
+    monkeypatch.setattr(server, "_log", lambda *a, **k: "log.md")
+    monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    out = server.local_code("t", ["big.py"])
+    assert "\nREFUSED: big.py: refused whole-file write (41 -> 2 lines)" in out
+
+
+def test_local_iterate_has_anchors_param_before_escalate():
+    import inspect
+
+    params = list(inspect.signature(server.local_iterate).parameters)
+    assert params[-2:] == ["anchors", "escalate"]
+
+
+def _fake_writes(monkeypatch, reports_and_writes, check_ok=True):
+    """local_code fake: each call returns the next report and applies the next {path: text} write."""
+    seq = iter(reports_and_writes)
+    calls = {"code": 0, "escalate": 0}
+
+    def fake_code(*a, **k):
+        calls["code"] += 1
+        report, writes = next(seq)
+        for rel, text in writes.items():
+            (server.ROOT / rel).write_text(text)
+        return report
+
+    monkeypatch.setattr(server, "ESCALATE", True)
+    monkeypatch.setattr(server, "local_code", fake_code)
+    monkeypatch.setattr(server, "_run_checks", lambda checks, tf: (check_ok, "" if check_ok else "Error: x"))
+    monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+
+    def fake_escalate(*a, **k):
+        calls["escalate"] += 1
+        return {"ok": False, "summary": "s", "cost_usd": 0.0, "turns": 0, "outside": []}
+
+    monkeypatch.setattr(server, "_escalate", fake_escalate)
+    return calls
+
+
+def test_iterate_fails_round_when_anchor_untouched_then_passes_once_edited(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"f.py": BIG})
+    edited = BIG.replace("line 10\n", "line ten\n")
+    calls = _fake_writes(monkeypatch, [("written: NONE\nnotes: n", {}), ("edited: f.py (1 edit)\nnotes: n", {"f.py": edited})])
+    out = server.local_iterate("t", ["f.py"], checks=["test"], anchors=["f.py: line 10"])
+    assert out.startswith("PASSED\n")
+    assert calls["code"] == 2 and calls["escalate"] == 0
+    assert "### tooling\nerror: f.py: not edited near anchor: line 10" in out
+
+
+def test_iterate_fails_round_on_failed_edit_even_when_checks_pass(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"f.py": BIG})
+    bad = "edited: NONE\nEDITS FAILED (search text not found once): f.py: search matched 0x, starts 'x'\nnotes: n"
+    calls = _fake_writes(monkeypatch, [(bad, {}), ("edited: f.py (1 edit)\nnotes: n", {})])
+    out = server.local_iterate("t", ["f.py"], checks=["test"])
+    assert out.startswith("PASSED\n")
+    assert calls["code"] == 2
+    assert "error: EDITS FAILED (search text not found once): f.py" in out
+
+
+def test_iterate_anchor_problems_reach_escalation(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"f.py": BIG})
+    calls = _fake_writes(monkeypatch, [("written: NONE\nnotes: n", {})] * 3)
+    out = server.local_iterate("t", ["f.py"], checks=["test"], anchors=["f.py: line 10"])
+    assert out.startswith("STILL FAILING after escalation to Claude")
+    assert calls["escalate"] == 1
+    assert "remaining:\n### tooling\nerror: f.py: not edited near anchor: line 10" in out

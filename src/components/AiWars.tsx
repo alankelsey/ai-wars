@@ -1,3 +1,4 @@
+// Main game component: splash, game screen, and end screen logic.
 "use client";
 
 import { useReducer, useState, type JSX } from "react";

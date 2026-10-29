@@ -19,6 +19,15 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 - Name every file the model may write. Keep each call to <= 3 files / ~5k output tokens; split bigger work.
 - List the exact import lines for each target file in the task; the model guesses module paths badly.
 - Compute any expected numbers with the real formula (floating point!) or have tests compute them.
+- Edits to existing files: one line per spot, anchored to an exact existing line, and pass the same anchors to
+  `local_iterate(anchors=[...])` so a skipped spot fails the round:
+
+  | # | anchor (`path: exact existing line`) | change |
+  |---|---|---|
+  | 1 | `src/game/events.ts: case "palletsMissing": {` | replace the case body with … |
+  | 2 | `src/game/game.ts: interestEnabled: opts.interestEnabled,` | add `difficulty: opts.difficulty ?? DEFAULT_DIFFICULTY,` after it |
+
+  Anchors must be unique lines (the first match is used). The model already sees the code map (every `src/` file's purpose and exports); don't repeat it in specs.
 
 ## 2. Test-first split
 - **Claude writes the contract tests** when they need bookkeeping (fake RNG queues, exact money maths,

@@ -1,3 +1,4 @@
+// Quantity picker: number input with slider and +/- controls for trade modals.
 import type { ChangeEvent, JSX } from "react";
 import styles from "./AiWars.module.css";
 

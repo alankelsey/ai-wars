@@ -1,3 +1,4 @@
+// Market engine: price/stock generation per city/chip and max buy/sell calculations.
 import type { GameState, MarketEntry } from "./types";
 import type { Rng } from "./rng";
 import { CONFIG } from "./data/config";

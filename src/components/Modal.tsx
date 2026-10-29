@@ -1,3 +1,4 @@
+// Reusable modal overlay with title, close button, and children content.
 import type { JSX, ReactNode } from "react";
 import styles from "./AiWars.module.css";
 

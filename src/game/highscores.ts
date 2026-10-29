@@ -1,3 +1,4 @@
+// High scores: load/save via KeyValueStore, add, sort, and truncate list.
 import type { Difficulty } from "./types";
 import { DIFFICULTIES } from "./data/difficulty";
 import { CONFIG } from "./data/config";

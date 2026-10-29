@@ -1,3 +1,4 @@
+// Root layout: HTML wrapper and metadata for AI WARS!.
 import type { Metadata } from "next";
 import "./globals.css";
 

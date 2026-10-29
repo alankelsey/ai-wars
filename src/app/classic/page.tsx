@@ -1,3 +1,4 @@
+// Next.js route for the original game at /classic/.
 import type { Metadata } from "next";
 import { AiWars } from "@/components/AiWars";
 

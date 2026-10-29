@@ -1,3 +1,4 @@
+// Game screen: stats panel, tips, market list, travel bar, and modals for trading/data center/risks.
 "use client";
 
 import { useState, type JSX } from "react";

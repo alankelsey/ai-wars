@@ -1,3 +1,4 @@
+// Modal for depositing/withdrawing cash and chips from the data center.
 import { useState, type JSX } from "react";
 import { Modal } from "./Modal";
 import { QtyPicker } from "./QtyPicker";
