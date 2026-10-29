@@ -1,5 +1,5 @@
-import { AiWars } from "@/components/AiWars";
+import { Landing } from "@/components/Landing";
 
 export default function Home() {
-  return <AiWars />;
+  return <Landing />;
 }
