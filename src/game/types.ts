@@ -1,5 +1,7 @@
 // Core game types and interfaces.
 
+export type Difficulty = "normal" | "hard" | "brutal";
+
 export type ChipTier = "budget" | "mid" | "premium";
 
 export interface ChipDef {
@@ -59,6 +61,7 @@ export interface GameState {
   rngState: number;
   company: string;
   interestEnabled: boolean;
+  difficulty: Difficulty;
   day: number;                 // 1..30 while playing
   cityIds: string[];           // the 6 cities in this game
   currentCityId: string;

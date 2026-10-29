@@ -10,16 +10,23 @@ import { rollTips } from "./tips";
 import { rollRisk } from "./risks";
 import { formatMoney } from "./format";
 
+import type { Difficulty } from "./types";
+import { DEFAULT_DIFFICULTY, getDifficulty } from "./data/difficulty";
+
 export interface NewGameOptions {
   seed: number;
   company: string;
   interestEnabled: boolean;
+  difficulty?: Difficulty;
 }
 
 export function newGame(opts: NewGameOptions): GameState {
   if (!COMPANIES.includes(opts.company)) {
     throw new Error(`Unknown company: ${opts.company}`);
   }
+  const difficulty = opts.difficulty ?? DEFAULT_DIFFICULTY;
+  // Validate difficulty by calling getDifficulty (throws on unknown)
+  getDifficulty(difficulty);
 
   const rng = createRng(opts.seed);
 
@@ -40,6 +47,7 @@ export function newGame(opts: NewGameOptions): GameState {
     rngState: rng.state,
     company: opts.company,
     interestEnabled: opts.interestEnabled,
+    difficulty: difficulty,
     day: 1,
     cityIds,
     currentCityId,

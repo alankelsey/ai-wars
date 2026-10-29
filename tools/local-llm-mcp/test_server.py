@@ -77,7 +77,8 @@ def test_escalation_cmd_shape():
         "--output-format", "json",
         "--max-budget-usd", str(server.ESCALATE_BUDGET_USD),
         "--permission-mode", "default",
-        "--allowedTools", "Read", "Grep", "Glob", "Edit(./src/a.ts)", "Edit(./src/b.ts)",
+        "--allowedTools", "Read", "Grep", "Glob", "Bash(npm run *)", "Bash(npm test *)",
+        "Edit(./src/a.ts)", "Edit(./src/b.ts)",
     ]
 
 

@@ -1,5 +1,6 @@
 import type { GameState, UptimeRisk } from "./types";
 import { createRng, type Rng } from "./rng";
+import { getDifficulty } from "./data/difficulty";
 import { CONFIG } from "./data/config";
 import { RISKS, getRisk } from "./data/risks";
 
@@ -8,7 +9,9 @@ export function rollRisk(state: GameState, rng: Rng): GameState {
     return state;
   }
 
-  if (!rng.chance(CONFIG.riskChance)) {
+  const d = getDifficulty(state.difficulty);
+
+  if (!rng.chance(d.riskChance)) {
     return state;
   }
 

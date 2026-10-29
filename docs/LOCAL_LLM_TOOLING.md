@@ -35,6 +35,20 @@ function, and put code above the names it used. **Build:** split a multi-edit ta
 automatically, or verify after each round that every requested anchor was edited.
 
 
+### 0c. Verification tooling
+**Problem:** checking that a rule really works in play (e.g. "do missing pallets actually leave the inventory?") and
+whether the game is too easy is done by hand with throwaway scripts. A model edit that silently did not apply still
+reported PASSED (PR 18), because the checks were already green before the change.
+**Build:**
+- `npm run sim -- --games 1000 --difficulty hard`: seeded bot players (greedy buy-low/sell-high, random, hoarder) play
+  full games through the real engine. Report win rate, net-worth percentiles, event/risk counts per game, and
+  invariant violations (inventory never negative, losses match messages, data center untouched by events).
+  Use it to verify rule changes and to tune difficulty with numbers instead of feel.
+- `local_iterate`: fail the round when a requested edit did not apply or a target file is unchanged (see #2),
+  and support an "expect red first" check for the new test, so an unchanged file can't pass.
+- Live smoke check after each Pages deploy: load https://alankelsey.github.io/ai-wars/, start a game, buy, travel,
+  and fail on console errors.
+
 ### 1. Scoped typecheck
 **Problem:** `npm run typecheck` checks the whole project, so it fails whenever *other* files are mid-change.
 Twice I had to drop typecheck from `checks`, and type errors (widened literals, a missing import) only surfaced at the end.
