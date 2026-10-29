@@ -6,11 +6,7 @@
         "run",
         "--script",
         "tools/local-llm-mcp/server.py"
-      ],
-      "env": {
-        "LOCAL_MODEL": "qwen3-coder-next:q4_K_M",
-        "LOCAL_NUM_CTX": "131072"
-      }
+      ]
     },
     "playwright": {
       "command": "npx",

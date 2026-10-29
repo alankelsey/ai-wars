@@ -26,4 +26,8 @@ jobs:
 
       - run: npm test
 
+      - uses: astral-sh/setup-uv@v6
+
+      - run: npm run test:tools
+
       - run: npm run build

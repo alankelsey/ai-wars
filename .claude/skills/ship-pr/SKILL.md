@@ -11,6 +11,7 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
 
 ## 0. Environment
 - `local_status`: model loaded with both cards in use? If not, ask the user to run `scripts/dev.sh up` (sudo).
+  Switch models with `scripts/dev.sh model <name> [ctx]` (writes `.dev/local-llm.json`; no MCP restart needed).
 - `git checkout main && git pull --ff-only && git checkout -b prN-<slug>`.
 
 ## 1. Spec (in `.tasks/prN.md`, gitignored)
@@ -31,9 +32,15 @@ Shell fallback with the same tools: `tools/local-llm-mcp/cli.py {code|iterate|fi
   context automatically; still pass specs (docs/DESIGN.md) and sibling modules it should mirror.
 - When the model also wrote the tests, check failing expectations before letting it "fix" code: it tends to bend
   correct implementations to match its own wrong tests.
-- PASSED → go to 4. STUCK / STILL FAILING → read the remaining errors yourself, find the root cause, then
-  either sharpen the spec (most common: a missing helper, wrong expectation, unclear rule) and re-run, or
-  make a few-line fix yourself if that is clearly cheaper. Never weaken tests to get green.
+- When STUCK / STILL FAILING, `local_iterate` hands off to Claude Code automatically (`claude -p`, Sonnet,
+  $1 cap, edits limited to `target_files`) and re-checks. The result says `PASSED (escalated to Claude)` or
+  `STILL FAILING after escalation to Claude`, plus the cost and a summary. Pass `escalate=False` for tasks where
+  failures are expected (partial steps) or when a hand-off makes no sense (env problems).
+- Still failing after the hand-off → read the remaining errors yourself and find the root cause. Sharpen the
+  spec and re-run (most common fixes: a missing helper, a wrong expectation, an unclear rule), or make a
+  few-line fix. Never weaken tests to get green.
+- Large existing files: give the model one explicitly placed edit per step ("replace exactly these lines",
+  "insert after line X"). It handles new files well but drops or misplaces edits spread across a big file.
 
 ## 4. Verify (Claude)
 - Read the implementation diff against the spec (not every test line). Check: spec rules, rounding,
