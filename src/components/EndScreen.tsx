@@ -4,6 +4,7 @@ import type { GameState } from "@/game/types";
 import type { HighScore } from "@/game/highscores";
 import { endMessage, netWorth } from "@/game/game";
 import { formatMoney } from "@/game/format";
+import { getDifficulty } from "@/game/data/difficulty";
 
 export interface EndScreenProps {
   game: GameState;
@@ -24,6 +25,7 @@ export function EndScreen(props: EndScreenProps): JSX.Element {
           <tr>
             <th>#</th>
             <th>Company</th>
+            <th>Level</th>
             <th>Cash</th>
             <th>Net worth</th>
           </tr>
@@ -31,13 +33,14 @@ export function EndScreen(props: EndScreenProps): JSX.Element {
         <tbody>
           {scores.length === 0 ? (
             <tr>
-              <td colSpan={4}>No scores yet</td>
+              <td colSpan={5}>No scores yet</td>
             </tr>
           ) : (
             scores.map((score, i) => (
               <tr key={`${i}-${score.date}`}>
                 <td>{i + 1}</td>
                 <td>{score.company}</td>
+                <td>{score.difficulty ? getDifficulty(score.difficulty).label : "—"}</td>
                 <td className={styles.num}>{formatMoney(score.cash)}</td>
                 <td className={styles.num}>{formatMoney(score.profit)}</td>
               </tr>

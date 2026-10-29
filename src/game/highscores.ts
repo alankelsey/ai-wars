@@ -1,3 +1,5 @@
+import type { Difficulty } from "./types";
+import { DIFFICULTIES } from "./data/difficulty";
 import { CONFIG } from "./data/config";
 
 export interface HighScore {
@@ -5,6 +7,36 @@ export interface HighScore {
   cash: number;
   profit: number;
   date: string;
+  difficulty?: Difficulty;
+}
+
+function isValidDifficulty(value: unknown): value is Difficulty {
+  return typeof value === "string" && DIFFICULTIES.some((d) => d.id === value);
+}
+
+function isValidHighScoreItem(item: unknown): item is HighScore {
+  if (typeof item !== "object" || item === null) {
+    return false;
+  }
+  const typed = item as Record<string, unknown>;
+  if (typeof typed.company !== "string") {
+    return false;
+  }
+  if (typeof typed.cash !== "number" || !Number.isFinite(typed.cash)) {
+    return false;
+  }
+  if (typeof typed.profit !== "number" || !Number.isFinite(typed.profit)) {
+    return false;
+  }
+  if (typeof typed.date !== "string") {
+    return false;
+  }
+  if ("difficulty" in typed && typed.difficulty !== undefined) {
+    if (!isValidDifficulty(typed.difficulty)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export interface KeyValueStore {
@@ -33,26 +65,6 @@ export function qualifiesForHighScore(list: readonly HighScore[], cash: number):
   }
   const lowestCash = Math.min(...list.map((s) => s.cash));
   return cash > lowestCash;
-}
-
-function isValidHighScoreItem(item: unknown): item is HighScore {
-  if (typeof item !== "object" || item === null) {
-    return false;
-  }
-  const typed = item as Record<string, unknown>;
-  if (typeof typed.company !== "string") {
-    return false;
-  }
-  if (typeof typed.cash !== "number" || !Number.isFinite(typed.cash)) {
-    return false;
-  }
-  if (typeof typed.profit !== "number" || !Number.isFinite(typed.profit)) {
-    return false;
-  }
-  if (typeof typed.date !== "string") {
-    return false;
-  }
-  return true;
 }
 
 export function parseHighScores(raw: string | null): HighScore[] {
