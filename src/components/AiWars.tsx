@@ -6,7 +6,7 @@ import { Splash } from "./Splash";
 import { GameScreen } from "./GameScreen";
 import { EndScreen } from "./EndScreen";
 import type { GameState } from "@/game/types";
-import { profit } from "@/game/game";
+import { netWorth } from "@/game/game";
 import { addHighScore, loadHighScores, saveHighScores, type HighScore, type KeyValueStore } from "@/game/highscores";
 
 export interface AiWarsProps {
@@ -25,8 +25,8 @@ function browserStore(): KeyValueStore | null {
 function recordScore(store: KeyValueStore | null, game: GameState): HighScore[] {
   const list = addHighScore(loadHighScores(store), {
     company: game.company,
-    cash: game.cash,
-    profit: profit(game),
+    cash: game.cash + game.dataCenter,
+    profit: netWorth(game),
     date: new Date().toISOString(),
   });
   saveHighScores(store, list);

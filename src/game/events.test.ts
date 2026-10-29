@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createRng, type Rng } from "./rng";
+import { createRng } from "./rng";
 import type { EventKind, GameState } from "./types";
 import { rollEvent } from "./events";
-import { makeState, CHIP_IDS, fill } from "./testUtils";
+import { makeState, CHIP_IDS, fill, FakeRng, pickValue } from "./testUtils";
 import { CONFIG } from "./data/config";
 import { getChip } from "./data/chips";
 
@@ -23,54 +23,6 @@ function goodQueue(kind: EventKind, ...eventValues: number[]): number[] {
 // Same formula as Rng.float, so expectations match the code's floating-point result exactly.
 const floatAt = (min: number, max: number, v: number): number => min + v * (max - min);
 
-// Fake RNG that returns queued values in order
-class FakeRng implements Rng {
-  private _queue: number[] = [];
-  constructor(values: number[], fallback = 0.5) {
-    this._queue = [...values];
-    this.fallback = fallback;
-  }
-
-  fallback: number;
-
-  next(): number {
-    if (this._queue.length === 0) {
-      return this.fallback;
-    }
-    const v = this._queue.shift()!;
-    return v;
-  }
-
-  int(min: number, max: number): number {
-    const v = this.next();
-    const range = max - min + 1;
-    return min + Math.floor(v * range);
-  }
-
-  float(min: number, max: number): number {
-    const v = this.next();
-    return min + v * (max - min);
-  }
-
-  pick<T>(items: readonly T[]): T {
-    const idx = this.int(0, items.length - 1);
-    return items[idx];
-  }
-
-  sample<T>(): T[] {
-    // Not used in events.ts
-    throw new Error("Not implemented");
-  }
-
-  chance(p: number): boolean {
-    return this.next() < p;
-  }
-
-  get state(): number {
-    return 0;
-  }
-}
-
 // Helper to build a market with non-zero inventory and uniform defaults
 function marketState(overrides?: Partial<GameState>): GameState {
   const base = makeState({
@@ -86,8 +38,6 @@ function marketState(overrides?: Partial<GameState>): GameState {
   return { ...base, market: newMarket };
 }
 
-// Helper to compute pickValue as specified in the task
-const pickValue = (index: number, length: number): number => (index + 0.5) / length;
 
 describe("rollEvent", () => {
   it("returns same state when pending event exists", () => {
@@ -442,5 +392,38 @@ describe("rollEvent", () => {
       expect(rate).toBeGreaterThanOrEqual(0.075);
       expect(rate).toBeLessThanOrEqual(0.095);
     });
+  });
+});
+
+describe("rollEvent average cost", () => {
+  it("fell off a truck adds free pallets that lower the average", () => {
+    const base = marketState();
+    const s = { ...base, inventory: { ...base.inventory, [CHIP_IDS[0]]: 10 }, avgCost: { ...base.avgCost, [CHIP_IDS[0]]: 100 } };
+    const rng = new FakeRng(goodQueue("fellOffTruck", pickValue(0, CHIP_IDS.length), 0.99)); // 5 pallets
+    const after = rollEvent(s, rng);
+    expect(after.inventory[CHIP_IDS[0]]).toBe(15);
+    expect(after.avgCost[CHIP_IDS[0]]).toBe((100 * 10) / 15);
+  });
+
+  it("fell off a truck on an unheld chip leaves its average at 0", () => {
+    const rng = new FakeRng(goodQueue("fellOffTruck", pickValue(1, CHIP_IDS.length), 0));
+    const after = rollEvent(marketState(), rng);
+    expect(after.inventory[CHIP_IDS[1]]).toBe(1);
+    expect(after.avgCost[CHIP_IDS[1]]).toBe(0);
+  });
+
+  it("pallets going missing keeps the average, and resets it when none are left", () => {
+    const base = marketState();
+    const held = (n: number): GameState => ({
+      ...base,
+      inventory: { ...base.inventory, [CHIP_IDS[0]]: n },
+      avgCost: { ...base.avgCost, [CHIP_IDS[0]]: 250 },
+    });
+    const partial = rollEvent(held(10), new FakeRng(badQueue("palletsMissing", true, pickValue(0, 1), 0)));
+    expect(partial.inventory[CHIP_IDS[0]]).toBe(9);
+    expect(partial.avgCost[CHIP_IDS[0]]).toBe(250);
+    const all = rollEvent(held(1), new FakeRng(badQueue("palletsMissing", true, pickValue(0, 1), 0)));
+    expect(all.inventory[CHIP_IDS[0]]).toBe(0);
+    expect(all.avgCost[CHIP_IDS[0]]).toBe(0);
   });
 });

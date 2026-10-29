@@ -43,14 +43,14 @@ describe("rollMarket", () => {
       cityBias: Object.fromEntries(
         CITY_IDS.map((city) => [
           city,
-          city === "c0"
+          city === CITY_IDS[0]
             ? fill(CHIP_IDS, 1)
             : (fill(CHIP_IDS, 1) as Record<string, number>),
         ])
       ) as Record<string, Record<string, number>>,
     });
 
-    const stateWithBias = withBias(state, "c0", "shreds", 0.001);
+    const stateWithBias = withBias(state, CITY_IDS[0], "shreds", 0.001);
     const stateWithModifier = {
       ...stateWithBias,
       chipModifier: fill(CHIP_IDS, 1),
