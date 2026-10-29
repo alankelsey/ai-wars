@@ -131,3 +131,11 @@ Style: black background, green (#33ff33-ish) monospace, CRT feel; keyboard usabl
 ## Backlog (not v1)
 - After game over, take a new loan and keep playing: higher APR, 25-day term.
 - Inventory capacity / rack upgrades, sound effects, money count-up animation, price history.
+- **Plan a landing page.** Several game mocks are coming to test, so the Pages site root
+  (https://alankelsey.github.io/ai-wars/) should become a landing page that links to each mock, and the
+  current game should move to its own path. Needs a plan first: URL layout per mock, how each mock builds into
+  one Pages artifact, shared vs per-mock high scores (localStorage keys), and how players report feedback.
+
+## Hosting
+- GitHub Pages, deployed by `.github/workflows/pages.yml` on every push to `main` (lint, typecheck, tests, then build).
+- Built with `BASE_PATH=/ai-wars`; local dev and plain `npm run build` have no base path.
