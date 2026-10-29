@@ -32,7 +32,7 @@ export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
   const [bankOpen, setBankOpen] = useState(false);
 
   return (
-    <main className={styles.screen}>
+    <main className={`${styles.screen} ${styles.gameScreen}`}>
       <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} />
       {isLastDay(game) && (
         <p className={styles.banner} role="status">
