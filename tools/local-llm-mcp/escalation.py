@@ -17,6 +17,7 @@ def _escalation_prompt(task: str, target_files: list[str], errors: str) -> str:
         "A local model could not make these checks pass. Fix the root cause with the smallest change.",
         f"Edit only these files: {', '.join(target_files)}",
         "Do not weaken or delete tests. If a test contradicts the spec, fix the test and say so.",
+        "If a test expects something an existing shared component or helper does not do (a different label, name or signature), the test is likely wrong: report it in your summary instead of rewriting working code to fit it.",
         f"<spec>\n{task}\n</spec>",
     ]
 

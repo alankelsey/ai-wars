@@ -54,6 +54,8 @@ def test_escalation_prompt_contains_parts_in_order():
         "A local model could not make these checks pass. Fix the root cause with the smallest change.",
         "Edit only these files: src/a.ts, src/a.test.ts",
         "Do not weaken or delete tests. If a test contradicts the spec, fix the test and say so.",
+        "If a test expects something an existing shared component or helper does not do (a different label, name or "
+        "signature), the test is likely wrong: report it in your summary instead of rewriting working code to fit it.",
         "<spec>\nSPEC TEXT\n</spec>",
         "<failures>\nERR TEXT\n</failures>",
         "Finish with 1-3 lines: root cause, what you changed.",

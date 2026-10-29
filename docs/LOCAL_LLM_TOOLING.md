@@ -22,6 +22,18 @@ The items below target those failure modes first.
   failures (Sonnet, `LOCAL_ESCALATE_BUDGET_USD` cap, edits limited to `target_files`), re-checks, and logs an
   `escalate` metric row with cost. `LOCAL_ESCALATE=0` turns it off. Tests: `npm run test:tools`.
 
+## Model comparison (2026-10-29)
+Same task (multi-edit `server.py`, pre-PR-17 file, 16 pytest contract tests, 4 fix rounds, no hand-off):
+
+| model | speed | where it runs | result | wall time |
+|---|---|---|---|---|
+| qwen3-coder-next q4_K_M (80B, 3B active) | 66 tok/s | 100% GPU, 60 GB @ 256k | STILL FAILING, 10/16 pass; 1 edit applied per round | 185 s |
+| qwen3.5:122b-a10b (122B, 10B active) | 26 tok/s | 87 GB, 29% CPU / 71% GPU @ 256k | STILL FAILING, file left broken; round 0 applied 10 of 11 edits, then whole-file rewrites hit parser bug 0 and truncated it | 1255 s |
+
+Takeaway: the 122B model plans multi-site edits much better but is ~2.5× slower per token and writes ~3× more tokens,
+so ~7× slower per task. Re-run after fixing parser bug 0; until then keep coder-next as default
+(`scripts/dev.sh model qwen3.5:122b-a10b` to try it).
+
 ## Needed — high priority
 
 ### 0. Parser: files that contain the output tags
