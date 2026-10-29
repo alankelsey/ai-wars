@@ -104,23 +104,6 @@
   }
 }
 
-.panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  flex: 1;
-}
-
-.pane {
-  border: 1px solid var(--fg-dim);
-  padding: 8px;
-  overflow-x: auto;
-}
-
-.pane > p {
-  color: var(--fg-dim);
-}
-
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -141,23 +124,6 @@
 
 .num {
   text-align: right;
-}
-
-.stepper {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.stepper input {
-  width: 4.5ch;
-  text-align: right;
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.stepper button {
-  padding: 0 4px;
 }
 
 .bar {
@@ -200,43 +166,349 @@
   max-width: 600px;
 }
 
+/* ---- stats panel ---- */
+.stats {
+  border: 1px solid var(--fg-dim);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statsHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.statsHead h2,
+.marketHead h2,
+.modalHead h2 {
+  margin: 0;
+  font-size: 1.3em;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.meter {
+  flex: 1;
+  height: 6px;
+  background: #0b2a0b;
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+}
+
+.statGrid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.statGrid > div + div {
+  border-left: 1px dashed var(--fg-dim);
+  padding-left: 8px;
+}
+
+.statGrid dt,
+.facts dt {
+  color: var(--fg-dim);
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.statGrid dd {
+  margin: 4px 0 0;
+  font-size: 1.15em;
+  font-weight: bold;
+}
+
+.linkButton {
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline dotted;
+}
+
+.good {
+  color: var(--fg);
+}
+
+.bad {
+  color: #ff5555;
+  text-shadow: 0 0 4px rgba(255, 85, 85, 0.5);
+}
+
+.uptime {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--fg-dim);
+}
+
+/* ---- tips ---- */
+.tip {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--fg-dim);
+  color: var(--accent);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.tip button {
+  border: none;
+  font-size: 1.2em;
+}
+
+/* ---- market list ---- */
+.market {
+  border: 1px solid var(--fg-dim);
+  flex: 1;
+}
+
+.marketHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--fg-dim);
+}
+
+.marketHead span {
+  color: var(--fg-dim);
+}
+
+.market ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chipRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px dotted var(--fg-dim);
+}
+
+.chipRow > button:not(.chipInfo) {
+  padding: 8px 12px;
+}
+
+.chipInfo {
+  border: none;
+  text-align: left;
+  padding: 2px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chipInfo:hover .chipName,
+.chipInfo:focus-visible .chipName {
+  color: var(--bg);
+}
+
+.chipName {
+  font-weight: bold;
+  color: var(--accent);
+}
+
+.held {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.85em;
+  color: var(--fg-dim);
+}
+
+/* ---- modals ---- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  width: min(480px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 2px double var(--fg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 0 24px rgba(51, 255, 51, 0.25);
+}
+
+.modal p {
+  margin: 0;
+}
+
+.modalHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--fg-dim);
+  padding-bottom: 10px;
+}
+
+.modalHead button {
+  border: none;
+  font-size: 1.4em;
+  padding: 0 6px;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+}
+
+.facts dd {
+  margin: 0;
+  text-align: right;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pickerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pickerRow input[type="number"] {
+  flex: 1;
+  padding: 8px;
+  font-size: 1.3em;
+  text-align: center;
+}
+
+.pickerRow input[type="range"] {
+  flex: 1;
+  accent-color: var(--fg);
+}
+
+.pickerRow button {
+  padding: 8px 14px;
+}
+
+.primary,
+.modal > button {
+  padding: 10px;
+  font-size: 1.05em;
+}
+
+.primary:not(:disabled) {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.panel {
+  border: 1px solid var(--fg-dim);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel h3 {
+  margin: 0;
+  font-size: 1em;
+}
+
+.modal .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 @media (max-width: 720px) {
-  .panes {
-    grid-template-columns: 1fr;
-    flex: none;
+  .statGrid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
-  /* trade tables become one card per chip: name on top, numbers and controls below */
-  .pane .table thead {
+  .statGrid > div:nth-child(3) {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .chipRow {
+    grid-template-columns: 1fr auto;
+  }
+
+  .chipRow > button:not(.chipInfo) {
+    grid-row: 2;
+  }
+}
+
+.barHead {
+  flex-basis: 100%;
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  color: var(--fg-dim);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.avg {
+  font-size: 0.8em;
+  color: var(--fg-dim);
+}
+
+.facts > div {
+  display: contents;
+}
+
+.stats > .meter {
+  flex: none;
+}
+
+/* keep the flights in reach while scrolling the market */
+.bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-bottom: 8px;
+}
+
+.panel button {
+  padding: 8px;
+}
+
+.barHead span {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .marketHead span,
+  .barHead span + span {
     display: none;
-  }
-
-  .pane .table tr {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 12px;
-    padding: 6px 0;
-    border-bottom: 1px dotted var(--fg-dim);
-  }
-
-  .pane .table td {
-    padding: 0;
-  }
-
-  .pane .table td:first-child {
-    flex-basis: 100%;
-    font-weight: bold;
-  }
-
-  /* the two number cells share a line, pushing qty + button onto the next one */
-  .pane .table td[data-label] {
-    flex: 1 1 40%;
-    text-align: left;
-  }
-
-  .pane .table td[data-label]::before {
-    content: attr(data-label) " ";
-    color: var(--fg-dim);
   }
 }
