@@ -28,8 +28,6 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
   real interfaces. Import every symbol you use (CONFIG, types) explicitly.
 - `as const` arrays are readonly: type them `readonly EventKind[]` instead of casting.
 
-<!-- BEGIN:nextjs-agent-rules -->
-
 ## Local model pitfalls (seen in past PRs; check your output against these)
 - Imports: use only paths that exist. Engine modules are `@/game/game`, `@/game/market`, `@/game/types`,
   `@/game/data/...`; there is no `@/game` or `../game` barrel. If a task lists import lines, copy them exactly.
@@ -43,6 +41,8 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 - Don't put a literal `$` before `formatMoney(...)`; it already adds one.
 - Test fixtures must use real data: companies from `COMPANIES`, chips/cities from `src/game/data`.
 - ASCII art and other "creative" strings: check that they actually say what the spec asks for.
+
+<!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
 
