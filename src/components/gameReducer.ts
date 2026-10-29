@@ -1,6 +1,7 @@
 import type { GameState } from "@/game/types";
 import { newGame, buy, sell, travel, dismissEvent } from "@/game/game";
 import { attemptTokenReset, acceptDowntime, dismissRisk } from "@/game/risks";
+import { deposit, withdraw } from "@/game/datacenter";
 
 export type AppState = { screen: "splash" } | { screen: "game"; game: GameState };
 export type AppAction =
@@ -12,6 +13,8 @@ export type AppAction =
   | { type: "tokenReset" }
   | { type: "acceptDowntime" }
   | { type: "dismissRisk" }
+  | { type: "deposit"; amount: number }
+  | { type: "withdraw"; amount: number }
   | { type: "reset" };
 
 export const initialAppState: AppState = { screen: "splash" };
@@ -46,5 +49,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return step(state, acceptDowntime);
     case "dismissRisk":
       return step(state, dismissRisk);
+    case "deposit":
+      return step(state, (g) => deposit(g, action.amount));
+    case "withdraw":
+      return step(state, (g) => withdraw(g, action.amount));
   }
 }
