@@ -10,9 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:tools": "uv run --with pytest --with 'mcp>=1.9,<2' --with httpx pytest -q -p no:cacheprovider tools/local-llm-mcp",
-    "codemap": "python3 tools/local-llm-mcp/codemap.py",
-    "codemap:check": "python3 tools/local-llm-mcp/codemap.py --check"
+    "codemap": "python3 ${LOCAL_LLM_KIT:-$HOME/projects/local-llm-kit}/server/codemap.py",
+    "codemap:check": "python3 ${LOCAL_LLM_KIT:-$HOME/projects/local-llm-kit}/server/codemap.py --check"
   },
   "dependencies": {
     "next": "16.4.3",

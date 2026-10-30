@@ -16,7 +16,10 @@ Game spec: docs/Market_mock.md. Design decisions: docs/DESIGN.md (takes preceden
 
 ## Workflow
 - Claude writes specs and the contract tests for tricky logic; the local model implements until they pass.
-  See .claude/skills/ship-pr/SKILL.md.
+  Tooling: the local-llm-kit plugin (`local-llm` MCP server, `local-llm-kit:ship-pr` skill); project config in
+  `.claude/local-llm.json`.
+- ai-wars specifics for ship-pr: `scripts/dev.sh up|status|down` (model via `llm`, plus next dev). UI PRs: screenshot
+  with the playwright MCP or `scripts/screenshot.sh <path> .dev/shot.png 1280,800` and `390,844`; look at both.
 
 ## Style
 - Small named functions, explicit types on exports, no `any`, no default exports except Next.js pages/layouts.
