@@ -8,8 +8,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-MODEL=${LOCAL_MODEL:-qwen3-coder-next:q4_K_M}
-NUM_CTX=${LOCAL_NUM_CTX:-262144}   # 256k ≈ 60 GB over both cards for qwen3-coder-next
+MODEL=${LOCAL_MODEL:-qwen3.8:27b}
+NUM_CTX=${LOCAL_NUM_CTX:-262144}   # 256k ≈ 29 GB over both cards for qwen3.8:27b
 OLLAMA=${OLLAMA_URL:-http://localhost:11434}
 GPU_SERVICES=${GPU_SERVICES:-$HOME/projects/gpu-services}
 DROPDIR=/etc/systemd/system/ollama.service.d

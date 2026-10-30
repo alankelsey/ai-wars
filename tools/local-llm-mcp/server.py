@@ -37,8 +37,8 @@ from escalation import (
 
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-# 256k context: ~60 GB for qwen3-coder-next over both R9700s.
-DEFAULT_MODEL = "qwen3-coder-next:q4_K_M"
+# 256k context: ~29 GB for qwen3.8:27b, all on GPU (benchmark in docs/LOCAL_LLM_TOOLING.md).
+DEFAULT_MODEL = "qwen3.8:27b"
 DEFAULT_NUM_CTX = 262144
 DEFAULT_FALLBACK_MODEL = "qwen3.5:122b-a10b"
 FALLBACK_ROUNDS = 3

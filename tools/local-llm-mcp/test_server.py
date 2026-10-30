@@ -15,7 +15,7 @@ def test_settings_defaults_without_file_or_env(tmp_path, monkeypatch):
     monkeypatch.delenv("LOCAL_MODEL", raising=False)
     monkeypatch.delenv("LOCAL_NUM_CTX", raising=False)
     s = server._settings(tmp_path / "missing.json")
-    assert s == {"model": "qwen3-coder-next:q4_K_M", "num_ctx": 262144, "fallback_model": "qwen3.5:122b-a10b"}
+    assert s == {"model": "qwen3.8:27b", "num_ctx": 262144, "fallback_model": "qwen3.5:122b-a10b"}
 
 
 def test_settings_env_overrides_defaults(tmp_path, monkeypatch):
@@ -43,7 +43,7 @@ def test_settings_num_ctx_is_int_and_bad_json_ignored(tmp_path, monkeypatch):
     f.write_text(json.dumps({"num_ctx": "131072"}))
     assert server._settings(f)["num_ctx"] == 131072
     f.write_text("{not json")
-    assert server._settings(f)["model"] == "qwen3-coder-next:q4_K_M"
+    assert server._settings(f)["model"] == "qwen3.8:27b"
     assert server._settings(f)["num_ctx"] == 262144
 
 
