@@ -1,4 +1,4 @@
-// Game screen: stats panel, tips, market list, travel bar, and modals for trading/data center/risks.
+// Game screen: stats panel, tips, market list, travel bar, and modals for trading/data center/risks/new-game confirm.
 "use client";
 
 import { useState, type JSX } from "react";
@@ -42,10 +42,11 @@ interface Trade {
 export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
   const [trade, setTrade] = useState<Trade | null>(null);
   const [bankOpen, setBankOpen] = useState(false);
+  const [quitOpen, setQuitOpen] = useState(false);
 
   return (
     <main className={`${styles.screen} ${styles.gameScreen}`}>
-      <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} onNewGame={() => dispatch({ type: "reset" })} />
+      <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} onNewGame={() => setQuitOpen(true)} />
       <LastDayBanner game={game} />
       <TipBanners tips={game.tips} day={game.day} />
       <MarketList game={game} onTrade={(chipId, mode) => setTrade({ chipId, mode })} />
@@ -85,6 +86,19 @@ export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
           }}
           onClose={() => setBankOpen(false)}
         />
+      )}
+      {quitOpen && (
+        <Modal label="New game" title="Are you sure?" onClose={() => setQuitOpen(false)}>
+          <p>Quit this game and start a new one? This run won&apos;t count toward high scores.</p>
+          <div className={styles.choices}>
+            <button type="button" className={styles.primary} autoFocus onClick={() => setQuitOpen(false)}>
+              Keep playing
+            </button>
+            <button type="button" onClick={() => dispatch({ type: "reset" })}>
+              Yes, start over
+            </button>
+          </div>
+        </Modal>
       )}
       {game.pendingEvent && (
         <Modal label="Event" title={game.pendingEvent.good ? "Lucky break" : "Trouble"}>
