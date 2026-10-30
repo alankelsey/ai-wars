@@ -1,7 +1,7 @@
 # Local LLM tooling — what's still needed
 
 Status as of 2026-10-28 (after PRs 5–14). The setup: Claude writes specs and contract tests, the local model
-(`qwen3-coder-next`, 128k ctx, spread over 2 AMD cards) writes code through the `local-llm` MCP server
+(`qwen3.8:27b` since PR 26, earlier `qwen3-coder-next`; 256k ctx over 2 AMD cards) writes code through the `local-llm` MCP server
 (`tools/local-llm-mcp/server.py`): `local_code`, `local_iterate`, `local_review`, `local_ask`, `local_status`.
 
 **This session's numbers:** 12 `local_iterate` loops, 5 ended green by themselves. ~47k output tokens, ~28 min of GPU time.
@@ -69,11 +69,19 @@ so ~7× slower per task. Re-run after fixing parser bug 0; until then keep coder
 | qwen3-coder-next | STUCK: put new code above `ROOT`, file fails to import | 82 s |
 | qwen3.5:122b-a10b | **PASSED 16/16**: round 0 closed every edit with the wrong tag (nothing applied), round 1 redid 9 edits, the "edits must apply" check caught the last one, round 3 green | 559 s |
 
-So the 122B became the fallback (PR 25): coder-next stays the fast default, the 122B takes over when it gets stuck,
-Claude only after both.
+So the 122B became the fallback (PR 25), Claude only after both. PR 26 replaced the coder-next default; see below.
 
-**Candidates to benchmark next** (fit 2× 34 GB VRAM): `glm-4.7-flash:q8_0` (30B MoE, ~3B active, 32 GB),
-`qwen3.8:27b` (dense, 18 GB at Q4). Bigger GLMs (GLM-5.x) are server-class (150+ GB) or cloud-only on Ollama.
+**Candidates, with PR 25 tooling** (same task and tests, no fallback, no hand-off; judged by pass rate first):
+
+| model | where it runs @ 256k | result | rounds | wall time |
+|---|---|---|---|---|
+| **qwen3.8:27b** (dense 27B, Q4) | 29 GB, 100% GPU, 58 tok/s | **PASSED 16/16, twice**: 10 edits in round 0, all applied; diff is equivalent rewrites, nothing dropped | 1 | 254 s / 259 s |
+| qwen3.5:122b-a10b | 87 GB, 29% CPU, 26 tok/s | PASSED 16/16: a malformed block, then a failed edit, both caught by the guards | 4 | 602 s |
+| glm-4.7-flash:q8_0 (30B MoE, 3B active) | 31 GB, 48 tok/s | STILL FAILING 0/16: 4 of 5 rounds hit the 16k output cap (rambling), the others MALFORMED; file left broken | 4 | 1443 s |
+
+**Default now: `qwen3.8:27b`**, fallback the 122B, then Claude. The user's priority is quality over speed; the 27B
+was both the most reliable and the fastest here. One task only, so keep watching pass rates in `metrics.jsonl`.
+Bigger GLMs (GLM-5.x) are server-class (150+ GB) or cloud-only on Ollama.
 
 ## Needed — high priority
 
