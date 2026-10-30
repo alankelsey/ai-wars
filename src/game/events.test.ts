@@ -12,6 +12,8 @@ import { newGame, buy, travel, dismissEvent } from "./game";
 import { maxBuy } from "./market";
 
 const HARD = getDifficulty("hard");
+const CASH_HINT = "Too bad you didn't have your cash stored in the data center.";
+const CHIPS_HINT = "Too bad you didn't have your chips stored in the data center.";
 
 const BAD_KINDS: readonly EventKind[] = ["palletsMissing", "competitorVram", "quantization", "sanctions", "customs"];
 const GOOD_KINDS: readonly EventKind[] = ["fellOffTruck", "hypeSpike", "fireSale"];
@@ -79,7 +81,7 @@ describe("rollEvent", () => {
     expect(result.cash).toBe(before.cash);
     expect(result.market).toEqual(before.market);
     expect(result.pendingEvent?.message).toBe(
-      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${lost} ${getChip(CHIP_IDS[0]).name}.`,
+      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${lost} ${getChip(CHIP_IDS[0]).name}. ${CHIPS_HINT}`,
     );
   });
 
@@ -100,7 +102,7 @@ describe("rollEvent", () => {
     expect(result.inventory[CHIP_IDS[1]]).toBe(0);
     const parts = [0, 3, 7].map((i) => `${lost(held[CHIP_IDS[i]])} ${getChip(CHIP_IDS[i]).name}`).join(", ");
     expect(result.pendingEvent?.message).toBe(
-      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts}.`,
+      `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts}. ${CHIPS_HINT}`,
     );
   });
 
@@ -202,8 +204,9 @@ describe("rollEvent", () => {
     expect(result.inventory).toEqual(before.inventory);
 
     const chipName = getChip(CHIP_IDS[chipIndex]).name;
-    expect(result.pendingEvent?.message).toContain(chipName);
-    expect(result.pendingEvent?.message).toContain(formatMoney(expectedFine));
+    expect(result.pendingEvent?.message).toBe(
+      `Sanctioned by the local government! ${chipName} can't be bought here and you paid a ${formatMoney(expectedFine)} fine. ${CASH_HINT}`,
+    );
   });
 
   it("handles sanctions when cash is zero", () => {
@@ -217,6 +220,7 @@ describe("rollEvent", () => {
     expect(result.pendingEvent?.kind).toBe("sanctions");
     expect(result.cash).toBe(0); // fine capped at cash
     expect(before).toEqual(base);
+    expect(result.pendingEvent?.message).not.toContain("data center"); // nothing was taken
   });
 
   it("handles sanctions when cash is 1 with max fine pct", () => {
@@ -253,7 +257,7 @@ describe("rollEvent", () => {
     expect(result.inventory).toEqual(before.inventory);
     expect(result.market).toEqual(before.market);
 
-    expect(result.pendingEvent?.message).toContain(formatMoney(expectedFine));
+    expect(result.pendingEvent?.message).toBe(`Customs shakedown at the border. You lost ${formatMoney(expectedFine)}. ${CASH_HINT}`);
   });
 
   it("handles customs when cash is zero", () => {
@@ -267,6 +271,7 @@ describe("rollEvent", () => {
     expect(result.pendingEvent?.kind).toBe("customs");
     expect(result.cash).toBe(0); // fine capped at cash
     expect(before).toEqual(base);
+    expect(result.pendingEvent?.message).not.toContain("data center"); // nothing was taken
   });
 
   it("handles customs when cash is 1 with max fine pct", () => {
