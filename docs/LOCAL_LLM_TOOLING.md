@@ -39,6 +39,17 @@ The items below target those failure modes first.
 - **Leaner conventions:** the model gets AGENTS.md without the Workflow section, the spec pointer and the Next.js
   block (it can't read `node_modules` docs), and none of it for Python-only tasks.
 
+## Done since (PR 25)
+- **Malformed blocks fail the round:** a reply that opens `<file>`/`<edit>` blocks the parser can't read (wrong closing
+  tag, cut-off reply) reports `MALFORMED: N block(s) could not be read`, instead of silently writing nothing.
+- **Stray tags refused:** a write or edit that adds lines that are exactly an output-format tag (`</search>`, `<replace>`, …)
+  is refused. Seen in this PR: the model restarted a block halfway and the stray `</search>` / `<replace>` landed in the code.
+- **Fallback model before Claude:** when the configured model ends STUCK / STILL FAILING, `local_iterate` gives the
+  fallback model (default `qwen3.5:122b-a10b`) 3 more rounds, then hands off to Claude. Set `"fallback_model"` in
+  `.dev/local-llm.json` or `LOCAL_FALLBACK_MODEL` (`""` = off); `local_iterate(fallback=False)` skips it per call.
+  Note: `dev.sh model` rewrites the settings file without that key, so the default comes back.
+- `local_code(model=...)` picks the model per call; reports and metrics show the model that actually answered.
+
 ## Model comparison (2026-10-29)
 Same task (multi-edit `server.py`, pre-PR-17 file, 16 pytest contract tests, 4 fix rounds, no hand-off):
 
@@ -50,6 +61,19 @@ Same task (multi-edit `server.py`, pre-PR-17 file, 16 pytest contract tests, 4 f
 Takeaway: the 122B model plans multi-site edits much better but is ~2.5× slower per token and writes ~3× more tokens,
 so ~7× slower per task. Re-run after fixing parser bug 0; until then keep coder-next as default
 (`scripts/dev.sh model qwen3.5:122b-a10b` to try it).
+
+**Re-run with PR 24 tooling** (same task, same tests, no hand-off):
+
+| model | result | wall time |
+|---|---|---|
+| qwen3-coder-next | STUCK: put new code above `ROOT`, file fails to import | 82 s |
+| qwen3.5:122b-a10b | **PASSED 16/16**: round 0 closed every edit with the wrong tag (nothing applied), round 1 redid 9 edits, the "edits must apply" check caught the last one, round 3 green | 559 s |
+
+So the 122B became the fallback (PR 25): coder-next stays the fast default, the 122B takes over when it gets stuck,
+Claude only after both.
+
+**Candidates to benchmark next** (fit 2× 34 GB VRAM): `glm-4.7-flash:q8_0` (30B MoE, ~3B active, 32 GB),
+`qwen3.8:27b` (dense, 18 GB at Q4). Bigger GLMs (GLM-5.x) are server-class (150+ GB) or cloud-only on Ollama.
 
 ## Needed — high priority
 

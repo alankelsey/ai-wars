@@ -11,24 +11,29 @@ import server  # noqa: E402
 # --- _settings ---------------------------------------------------------------
 
 def test_settings_defaults_without_file_or_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("LOCAL_FALLBACK_MODEL", raising=False)
     monkeypatch.delenv("LOCAL_MODEL", raising=False)
     monkeypatch.delenv("LOCAL_NUM_CTX", raising=False)
     s = server._settings(tmp_path / "missing.json")
-    assert s == {"model": "qwen3-coder-next:q4_K_M", "num_ctx": 262144}
+    assert s == {"model": "qwen3-coder-next:q4_K_M", "num_ctx": 262144, "fallback_model": "qwen3.5:122b-a10b"}
 
 
 def test_settings_env_overrides_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_MODEL", "env-model")
     monkeypatch.setenv("LOCAL_NUM_CTX", "65536")
-    assert server._settings(tmp_path / "missing.json") == {"model": "env-model", "num_ctx": 65536}
+    monkeypatch.setenv("LOCAL_FALLBACK_MODEL", "env-big")
+    assert server._settings(tmp_path / "missing.json") == {
+        "model": "env-model", "num_ctx": 65536, "fallback_model": "env-big"
+    }
 
 
 def test_settings_file_wins_and_missing_keys_fall_back(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_NUM_CTX", "65536")
     monkeypatch.delenv("LOCAL_MODEL", raising=False)
     f = tmp_path / "local-llm.json"
-    f.write_text(json.dumps({"model": "qwen3.5:122b-a10b"}))
-    assert server._settings(f) == {"model": "qwen3.5:122b-a10b", "num_ctx": 65536}
+    monkeypatch.delenv("LOCAL_FALLBACK_MODEL", raising=False)
+    f.write_text(json.dumps({"model": "qwen3.5:122b-a10b", "fallback_model": ""}))
+    assert server._settings(f) == {"model": "qwen3.5:122b-a10b", "num_ctx": 65536, "fallback_model": ""}
 
 
 def test_settings_num_ctx_is_int_and_bad_json_ignored(tmp_path, monkeypatch):
@@ -38,7 +43,8 @@ def test_settings_num_ctx_is_int_and_bad_json_ignored(tmp_path, monkeypatch):
     f.write_text(json.dumps({"num_ctx": "131072"}))
     assert server._settings(f)["num_ctx"] == 131072
     f.write_text("{not json")
-    assert server._settings(f) == {"model": "qwen3-coder-next:q4_K_M", "num_ctx": 262144}
+    assert server._settings(f)["model"] == "qwen3-coder-next:q4_K_M"
+    assert server._settings(f)["num_ctx"] == 262144
 
 
 def test_old_constants_removed():
@@ -126,6 +132,7 @@ def _fake_loop(monkeypatch, check_results, esc_result):
     monkeypatch.setattr(server, "local_code", lambda *a, **k: "written: x\nnotes: n\nlog: l")
     monkeypatch.setattr(server, "_run_checks", lambda checks, tf: next(results))
     monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    monkeypatch.setattr(server, "_settings", lambda *a: {"model": "m", "num_ctx": 1, "fallback_model": ""})
 
     def fake_escalate(task, target_files, errors):
         calls["escalate"] += 1
@@ -225,7 +232,7 @@ def test_local_iterate_has_anchors_param_before_escalate():
     import inspect
 
     params = list(inspect.signature(server.local_iterate).parameters)
-    assert params[-2:] == ["anchors", "escalate"]
+    assert params[-3:] == ["anchors", "fallback", "escalate"]
 
 
 def _fake_writes(monkeypatch, reports_and_writes, check_ok=True):
@@ -244,6 +251,7 @@ def _fake_writes(monkeypatch, reports_and_writes, check_ok=True):
     monkeypatch.setattr(server, "local_code", fake_code)
     monkeypatch.setattr(server, "_run_checks", lambda checks, tf: (check_ok, "" if check_ok else "Error: x"))
     monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    monkeypatch.setattr(server, "_settings", lambda *a: {"model": "m", "num_ctx": 1, "fallback_model": ""})
 
     def fake_escalate(*a, **k):
         calls["escalate"] += 1
@@ -280,3 +288,135 @@ def test_iterate_anchor_problems_reach_escalation(tmp_path, monkeypatch):
     assert out.startswith("STILL FAILING after escalation to Claude")
     assert calls["escalate"] == 1
     assert "remaining:\n### tooling\nerror: f.py: not edited near anchor: line 10" in out
+
+
+# --- PR 25: malformed blocks, per-call model, fallback model ---------------------
+
+def test_local_code_reports_malformed_blocks(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"a.ts": "x\n"})
+    bad = '<edit path="a.ts">\n<search>\nx\n</search>\n<replace>\ny\n</search>\n</edit>\n<notes>\n- n\n</notes>'
+    monkeypatch.setattr(server, "_chat", lambda *a, **k: {"message": {"content": bad}})
+    monkeypatch.setattr(server, "_log", lambda *a, **k: "log.md")
+    monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    out = server.local_code("t", ["a.ts"])
+    assert "\nMALFORMED: 1 block(s) could not be read;" in out
+    assert (tmp_path / "a.ts").read_text() == "x\n"
+
+
+def test_chat_uses_model_override(monkeypatch):
+    sent = {}
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": ""}}
+
+    def fake_post(url, json, timeout):
+        sent.update(json)
+        return Resp()
+
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+    monkeypatch.setattr(server, "_settings", lambda *a: {"model": "m", "num_ctx": 7, "fallback_model": ""})
+    server._chat("sys", "user")
+    assert sent["model"] == "m" and sent["options"]["num_ctx"] == 7
+    server._chat("sys", "user", model="big")
+    assert sent["model"] == "big"
+
+
+def test_local_code_passes_model_to_chat_and_stats_show_it(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"a.ts": "x\n"})
+    seen = {}
+
+    def fake_chat(system, prompt, **k):
+        seen.update(k)
+        return {"model": k.get("model") or "m", "message": {"content": "<notes>\n- n\n</notes>"}}
+
+    monkeypatch.setattr(server, "_chat", fake_chat)
+    monkeypatch.setattr(server, "_log", lambda *a, **k: "log.md")
+    monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    out = server.local_code("t", ["a.ts"], model="big")
+    assert seen.get("model") == "big"
+    assert out.startswith("model=big ")
+
+
+def _fake_fallback(monkeypatch, check_results, fallback_model="big", fail_fallback=False):
+    results = iter(check_results)
+    calls = {"models": [], "escalate": 0}
+
+    def fake_code(*a, **k):
+        if fail_fallback and k.get("model"):
+            raise server.httpx.HTTPError("model not found")
+        calls["models"].append(k.get("model"))
+        return "edited: a.ts (1 edit)\nnotes: n"
+
+    monkeypatch.setattr(server, "ESCALATE", True)
+    monkeypatch.setattr(server, "local_code", fake_code)
+    monkeypatch.setattr(server, "_run_checks", lambda checks, tf: next(results))
+    monkeypatch.setattr(server, "_metric", lambda *a, **k: None)
+    monkeypatch.setattr(server, "_settings", lambda *a: {"model": "m", "num_ctx": 1, "fallback_model": fallback_model})
+
+    def fake_escalate(*a, **k):
+        calls["escalate"] += 1
+        return {"ok": True, "summary": "s", "cost_usd": 0.1, "turns": 1, "outside": []}
+
+    monkeypatch.setattr(server, "_escalate", fake_escalate)
+    return calls
+
+
+def test_iterate_hands_stuck_task_to_fallback_model_before_claude(monkeypatch):
+    fail = (False, "Error: boom")
+    # round 1 fail, round 2 same -> STUCK; fallback round 3 fail, fix with big, round 4 passes
+    calls = _fake_fallback(monkeypatch, [fail, fail, fail, (True, "")])
+    out = server.local_iterate("task", ["a.ts"], checks=["test"])
+    assert out.startswith("PASSED (fallback model big)")
+    assert calls["models"] == [None, None, "big"]
+    assert calls["escalate"] == 0
+    assert "fallback: STUCK (same failures two rounds in a row) with m; handing over to big" in out
+
+
+def test_iterate_escalates_when_fallback_also_fails(monkeypatch):
+    fail = (False, "Error: boom")
+    calls = _fake_fallback(monkeypatch, [fail, fail, fail, fail, (True, "")])
+    out = server.local_iterate("task", ["a.ts"], checks=["test"])
+    assert calls["models"] == [None, None, "big"]
+    assert calls["escalate"] == 1
+    assert out.startswith("PASSED (escalated to Claude)")
+
+
+def test_iterate_skips_fallback_when_off_same_or_disabled(monkeypatch):
+    fail = (False, "Error: boom")
+    for fb, flag in [("", True), ("m", True), ("big", False)]:
+        calls = _fake_fallback(monkeypatch, [fail, fail, (True, "")], fallback_model=fb)
+        out = server.local_iterate("task", ["a.ts"], checks=["test"], fallback=flag)
+        assert calls["models"] == [None, None], fb
+        assert calls["escalate"] == 1 and "fallback:" not in out
+
+
+def test_iterate_fallback_error_is_logged_and_claude_still_runs(monkeypatch):
+    fail = (False, "Error: boom")
+    calls = _fake_fallback(monkeypatch, [fail, fail, fail, (True, "")], fail_fallback=True)
+    out = server.local_iterate("task", ["a.ts"], checks=["test"])
+    assert "fallback failed (big): model not found" in out
+    assert calls["escalate"] == 1
+    assert out.startswith("PASSED (escalated to Claude)")
+
+
+def test_apply_output_refuses_edit_that_adds_stray_tags(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {"a.py": "x = 1\n"})
+    out = '<edit path="a.py">\n<search>\nx = 1\n</search>\n<replace>\nx = 2\n</search>\n<replace>\nx = 3\n</replace>\n</edit>'
+    res = server._apply_output(out, ["a.py"], False)
+    assert res["edited"] == []
+    assert res["refused"] == [
+        "a.py: refused: the change adds output-format tag lines (</search>, <replace>); "
+        "a block was probably not closed properly"
+    ]
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+
+
+def test_apply_output_refuses_file_write_with_stray_tags(tmp_path, monkeypatch):
+    _repo(tmp_path, monkeypatch, {})
+    res = server._apply_output('<file path="n.py">\nx = 1\n</edit>\ny = 2\n</file>', ["n.py"], False)
+    assert res["written"] == [] and len(res["refused"]) == 1
+    assert not (tmp_path / "n.py").exists()

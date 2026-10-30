@@ -184,3 +184,60 @@ def test_trim_conventions_on_real_agents_md_keeps_rules():
     assert "## Local model pitfalls" in got and "## Style" in got
     assert "nextjs-agent-rules" not in got and "## Workflow" not in got and "Game spec:" not in got
     assert len(got) < len(text)
+
+
+# --- malformed_blocks (PR 25) ------------------------------------------------------
+
+MALFORMED_MSG = (
+    "MALFORMED: {n} block(s) could not be read; close each <file> with </file>, and each <edit> with "
+    "</search>, </replace>, </edit> in that order"
+)
+
+
+def test_malformed_edit_closed_with_wrong_tag():
+    out = '<edit path="a.ts">\n<search>\nx\n</search>\n<replace>\ny\n</search>\n</edit>\n<notes>\n- n\n</notes>'
+    assert guards.malformed_blocks(out) == MALFORMED_MSG.format(n=1)
+
+
+def test_malformed_counts_unterminated_file_and_ignores_good_blocks():
+    good = '<edit path="b.ts">\n<search>\na\n</search>\n<replace>\nb\n</replace>\n</edit>'
+    out = f'{good}\n<file path="a.ts">\nA\nB'
+    assert guards.malformed_blocks(out) == MALFORMED_MSG.format(n=1)
+    assert guards.malformed_blocks(good + "\n<notes>\n- n\n</notes>") is None
+    assert guards.malformed_blocks("<notes>\n- nothing to do\n</notes>") is None
+
+
+def test_malformed_ignores_example_tags_inside_a_good_file_block():
+    body = 'PROMPT = """\n<edit path="x.ts">\n<search>\n...\n</search>\n"""'
+    assert guards.malformed_blocks(f'<file path="server.py">\n{body}\n</file>') is None
+
+
+def test_round_problems_includes_malformed():
+    assert guards.round_problems("MALFORMED: 2 block(s) could not be read; x") == (
+        "error: MALFORMED: 2 block(s) could not be read; x"
+    )
+
+
+# --- stray_tags (PR 25) ---------------------------------------------------------------
+
+def test_stray_tags_refuses_new_tag_lines():
+    old = "def f():\n    return 1\n"
+    new = "def f():\n</search>\n<replace>\n    return 2\n"
+    assert guards.stray_tags("a.py", old, new) == (
+        "a.py: refused: the change adds output-format tag lines (</search>, <replace>); "
+        "a block was probably not closed properly"
+    )
+
+
+def test_stray_tags_allows_existing_tag_lines_and_indented_text():
+    old = 'P = """\n<search>\nx\n</search>\n"""\n'
+    assert guards.stray_tags("s.py", old, old.replace("x", "y")) is None
+    assert guards.stray_tags("a.ts", "", "  </file>\nconst t = '<replace>';\n") is None
+    assert guards.stray_tags("a.ts", "", "") is None
+
+
+def test_stray_tags_counts_occurrences():
+    old = "<search>\n"
+    assert guards.stray_tags("s.py", old, "<search>\n<search>\n") == (
+        "s.py: refused: the change adds output-format tag lines (<search>); a block was probably not closed properly"
+    )

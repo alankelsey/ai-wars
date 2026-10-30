@@ -11,7 +11,27 @@ EDIT_RE = re.compile(
 )
 
 
+_TAG_LINES = ("<search>", "</search>", "<replace>", "</replace>", "</edit>", "</file>")
+
+
+def stray_tags(rel: str, old_text: str, new_text: str) -> str | None:
+    """Refusal when a change adds lines that are exactly an output-format tag (a block that wasn't closed right)."""
+    def counts(text: str) -> dict[str, int]:
+        lines = [l.rstrip() for l in text.split("\n")]
+        return {t: lines.count(t) for t in _TAG_LINES}
+
+    before, after = counts(old_text), counts(new_text)
+    added = [t for t in _TAG_LINES if after[t] > before[t]]
+    if not added:
+        return None
+    return (
+        f"{rel}: refused: the change adds output-format tag lines ({', '.join(added)}); "
+        "a block was probably not closed properly"
+    )
+
+
 def shrink_refusal(rel: str, old_text: str, new_text: str) -> str | None:
+    """Refuse whole-file writes that would lose more than half of a large file."""
     old_lines = old_text.count("\n") + 1 if old_text else 0
     new_lines = new_text.count("\n") + 1 if new_text else 0
     if old_lines >= 20 and new_lines < old_lines * 0.5:
@@ -52,11 +72,23 @@ def untouched_anchors(originals: dict[str, str], current: dict[str, str], anchor
     return problems
 
 
+def malformed_blocks(content: str) -> str | None:
+    """Message when the reply opens <file>/<edit> blocks that FILE_RE/EDIT_RE could not read, else None."""
+    rest = EDIT_RE.sub("", FILE_RE.sub("", content))
+    n = len(re.findall(r'^<(?:file|edit) path="', rest, re.M))
+    if not n:
+        return None
+    return (
+        f"MALFORMED: {n} block(s) could not be read; close each <file> with </file>, and each <edit> with "
+        "</search>, </replace>, </edit> in that order"
+    )
+
+
 def round_problems(code_report: str) -> str:
     return "\n".join(
         f"error: {line}"
         for line in code_report.split("\n")
-        if line.startswith("EDITS FAILED") or line.startswith("REFUSED")
+        if line.startswith("EDITS FAILED") or line.startswith("REFUSED") or line.startswith("MALFORMED")
     )
 
 
