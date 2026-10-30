@@ -1,4 +1,4 @@
-// Stats panel: city, day progress, cash/data center/debt/net worth meters and uptime/racks.
+// Stats panel: city, New game link, day progress, cash/data center/debt/net worth meters and uptime/racks.
 import type { JSX } from "react";
 import styles from "./AiWars.module.css";
 import type { GameState } from "@/game/types";
@@ -11,10 +11,11 @@ import { getDifficulty } from "@/game/data/difficulty";
 export interface StatsPanelProps {
   game: GameState;
   onOpenDataCenter(): void;
+  onNewGame(): void;
 }
 
 export function StatsPanel(props: StatsPanelProps): JSX.Element {
-  const { game, onOpenDataCenter } = props;
+  const { game, onOpenDataCenter, onNewGame } = props;
   const city = getCity(game.currentCityId);
   const cash = game.cash;
   const dataCenter = game.dataCenter;
@@ -31,6 +32,7 @@ export function StatsPanel(props: StatsPanelProps): JSX.Element {
           <h2>{city.shortName}</h2>
           <span className={styles.level}>{getDifficulty(game.difficulty).label}</span>
         </div>
+        <button type="button" className={styles.linkButton} onClick={onNewGame}>New game</button>
         <span>{`Day ${game.day}/${CONFIG.days}`}</span>
       </div>
       <div

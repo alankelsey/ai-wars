@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { getCity } from "@/game/data/cities";
+import { CONFIG } from "@/game/data/config";
 import { GameScreen } from "./GameScreen";
 import { makeState } from "@/game/testUtils";
 import type { GameState, UptimeRisk } from "@/game/types";
@@ -53,5 +56,25 @@ describe("market list stored chips", () => {
     render(<GameScreen game={game} dispatch={() => {}} />);
     expect(screen.getByText("2 held")).toBeTruthy();
     expect(screen.getByText("5 stored")).toBeTruthy();
+  });
+});
+
+describe("new game link", () => {
+  it("sits between the city name and the day count", () => {
+    const game = makeState();
+    render(<GameScreen game={game} dispatch={() => {}} />);
+    const city = screen.getByRole("heading", { level: 2, name: getCity(game.currentCityId).shortName });
+    const link = screen.getByRole("button", { name: "New game" });
+    const day = screen.getByText(`Day ${game.day}/${CONFIG.days}`);
+    expect(city.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("quits to the start screen with a reset", async () => {
+    const user = userEvent.setup();
+    const dispatch = vi.fn();
+    render(<GameScreen game={makeState()} dispatch={dispatch} />);
+    await user.click(screen.getByRole("button", { name: "New game" }));
+    expect(dispatch).toHaveBeenCalledWith({ type: "reset" });
   });
 });
