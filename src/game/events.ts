@@ -16,6 +16,9 @@ const BAD_KINDS: readonly EventKind[] = [
 
 const GOOD_KINDS: readonly EventKind[] = ["fellOffTruck", "hypeSpike", "fireSale"];
 
+const CASH_HINT = "Too bad you didn't have your cash stored in the data center.";
+const CHIPS_HINT = "Too bad you didn't have your chips stored in the data center.";
+
 export function rollEvent(state: GameState, rng: Rng): GameState {
   // If there's already a pending event, don't roll again
   if (state.pendingEvent !== null) {
@@ -68,7 +71,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
         }
         parts.push(`${lost} ${getChip(id).name}`);
       }
-      message = `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts.join(", ")}.`;
+      message = `Pallets went missing in transit! You lost ${Math.round(pct * 100)}% of your stock: ${parts.join(", ")}. ${CHIPS_HINT}`;
       break;
     }
 
@@ -108,6 +111,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
       const fine = Math.min(newCash, Math.ceil(newCash * finePct));
       newCash -= fine;
       message = `Sanctioned by the local government! ${getChip(chip).name} can't be bought here and you paid a ${formatMoney(fine)} fine.`;
+      if (fine > 0) message += ` ${CASH_HINT}`;
       break;
     }
 
@@ -116,6 +120,7 @@ export function rollEvent(state: GameState, rng: Rng): GameState {
       const fine = Math.min(newCash, Math.ceil(newCash * finePct));
       newCash -= fine;
       message = `Customs shakedown at the border. You lost ${formatMoney(fine)}.`;
+      if (fine > 0) message += ` ${CASH_HINT}`;
       break;
     }
 
