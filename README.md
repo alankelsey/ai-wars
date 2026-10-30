@@ -13,27 +13,16 @@ npm test
 
 ## How this repo is built
 
-Code and tests are written by a local LLM (qwen3-coder-next split across two Radeon R9700s) through the
-`local-llm` MCP server in `tools/local-llm-mcp/`. Claude plans each PR, the local model writes it and
-reviews it, and Claude verifies the review findings and the test results.
+Code and tests are written by a local LLM (qwen3.8:27b, with qwen3.5:122b-a10b as fallback, on two Radeon R9700s)
+through the [local-llm-kit](https://github.com/alankelsey/local-llm-kit) Claude Code plugin. Claude plans each PR
+and writes the contract tests, the local model writes the code and reviews it, and Claude verifies and ships.
 
 ```bash
-scripts/dev.sh up       # spread Ollama over both GPUs, load the model, start next dev
+scripts/dev.sh up       # `llm up` (spread Ollama over both GPUs, load the model), then start next dev
 scripts/dev.sh status
-scripts/dev.sh down     # stop next dev, unload the model
-scripts/dev.sh restore  # back to per-card mode (gpu-services)
-tools/local-llm-mcp/cli.py status   # same tools as the MCP server, from a shell
+scripts/dev.sh down     # stop next dev, `llm down`
 ```
 
-Start Claude Code from this directory to pick up `.mcp.json` and the `/ship-pr` skill.
-
-| Tool | What it does |
-|---|---|
-| `local_code` | Model writes whole files or search/replace edits; target files' imports are added as context automatically |
-| `local_iterate` | Write → lint/typecheck/test → feed failures back, with history; stops early when stuck |
-| `local_review` | Diff review → evidence check → second-pass verifier; only confirmed findings return |
-| `local_ask`, `local_status` | Free-form question; loaded model + per-card VRAM |
-| `playwright` MCP / `scripts/screenshot.sh` | Headless screenshots of the dev server via system Chrome |
-
-Context window: 128k by default (`LOCAL_NUM_CTX`; 56 GB across both cards; 262144 also fits at 60 GB).
-Raw model output goes to `.llm-logs/`, one JSON line per call in `.llm-logs/metrics.jsonl` (both gitignored).
+Start Claude Code here: `.claude/settings.json` offers the kit plugin (MCP server + `ship-pr` skill), and
+`.claude/local-llm.json` holds this project's settings. `.mcp.json` adds the playwright MCP for screenshots
+(`scripts/screenshot.sh` does the same from a shell). Raw model output and metrics go to `.llm-logs/` (gitignored).

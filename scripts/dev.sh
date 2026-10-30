@@ -1,52 +1,16 @@
 #!/usr/bin/env bash
-# AI WARS dev environment.
-#   dev.sh up         spread Ollama over both cards, preload the coding model, start next dev
-#   dev.sh status     model / VRAM / web server state
-#   dev.sh down       stop next dev, unload the model (GPUs idle, Ollama stays in spread mode)
-#   dev.sh restore    back to per-card mode (card0 Ollama, card1 Ollama + ComfyUI) via gpu-services
-#   dev.sh model M [ctx]  switch the local model (MCP server picks it up next call)
+# AI WARS dev environment (model control comes from local-llm-kit's `llm` command).
+#   dev.sh up         `llm up` (spread Ollama, preload the coding model), then start next dev
+#   dev.sh status     `llm status`, then web server state
+#   dev.sh down       stop next dev, then `llm down` (GPUs idle)
+#   dev.sh restore    stop next dev, then `llm restore` (per-card mode via gpu-services)
+#   dev.sh model M [ctx]  same as `llm model M [ctx]`
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
-MODEL=${LOCAL_MODEL:-qwen3.8:27b}
-NUM_CTX=${LOCAL_NUM_CTX:-262144}   # 256k ≈ 29 GB over both cards for qwen3.8:27b
-OLLAMA=${OLLAMA_URL:-http://localhost:11434}
-GPU_SERVICES=${GPU_SERVICES:-$HOME/projects/gpu-services}
-DROPDIR=/etc/systemd/system/ollama.service.d
 RUN=$ROOT/.dev; mkdir -p "$RUN"
 
-load_settings() {  # .dev/local-llm.json (written by `dev.sh model`) overrides env/defaults; keys optional
-  [[ -f $RUN/local-llm.json ]] || return 0
-  MODEL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model", sys.argv[2]))' "$RUN/local-llm.json" "$MODEL")
-  NUM_CTX=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("num_ctx", sys.argv[2])))' "$RUN/local-llm.json" "$NUM_CTX")
-}
-load_settings
-
-vram() {  # rocm-smi isn't installed; read amdgpu sysfs, skipping the iGPU
-  for d in /sys/class/drm/card[0-9]*/device; do
-    [[ -r $d/mem_info_vram_total ]] || continue
-    awk -v n="${d%/device}" -v u="$(cat "$d/mem_info_vram_used")" '$1 > 8e9 {printf "%s: %.1f / %.1f GB\n", n, u/1e9, $1/1e9}' "$d/mem_info_vram_total"
-  done
-}
-
-spread_mode() {
-  if [[ ! -f $DROPDIR/card0.conf ]] && cmp -s "$ROOT/scripts/ollama-spread.conf" "$DROPDIR/spread.conf"; then
-    echo "ollama already in spread mode"; return
-  fi
-  echo "switching ollama to spread mode (sudo)..."
-  systemctl --user stop ollama-card1 comfyui 2>/dev/null || true
-  sudo install -D -m 644 "$ROOT/scripts/ollama-spread.conf" "$DROPDIR/spread.conf"
-  sudo rm -f "$DROPDIR/card0.conf"
-  sudo systemctl daemon-reload && sudo systemctl restart ollama
-  for _ in $(seq 30); do curl -sf "$OLLAMA/api/version" >/dev/null && break; sleep 1; done
-}
-
-preload() {
-  echo "loading $MODEL (first load takes ~30-60s)..."
-  curl -sf "$OLLAMA/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"\",\"keep_alive\":\"60m\",\"options\":{\"num_ctx\":$NUM_CTX}}" >/dev/null
-  ollama ps
-  vram
-}
+command -v llm >/dev/null || { echo "llm not found: install local-llm-kit (see its README)"; exit 1; }
 
 web_up() {
   [[ -f package.json ]] || { echo "no package.json yet; skipping next dev"; return; }
@@ -68,19 +32,12 @@ web_down() {
 }
 
 case ${1:-status} in
-  up)      spread_mode; preload; web_up ;;
-  down)    web_down; ollama stop "$MODEL" 2>/dev/null || true; echo "model unloaded"; vram ;;
-  restore) web_down; sudo rm -f "$DROPDIR/spread.conf"; "$GPU_SERVICES/install.sh" ;;
+  up)      llm up; web_up ;;
+  down)    web_down; llm down ;;
+  restore) web_down; llm restore ;;
   status)
-    [[ -f $DROPDIR/card0.conf ]] && echo "ollama: per-card mode (card 0 only)" || echo "ollama: spread mode"
-    ollama ps; vram
-    [[ -f $RUN/next.pid ]] && kill -0 "$(cat "$RUN/next.pid")" 2>/dev/null && echo "next dev: running" || echo "next dev: stopped"
-    echo "configured: $MODEL ctx=$NUM_CTX" ;;
-  model)
-    [[ -n ${2:-} ]] || { echo "usage: dev.sh model <name> [ctx]"; exit 1; }
-    ollama stop "$MODEL" 2>/dev/null || true
-    MODEL=$2; NUM_CTX=${3:-$NUM_CTX}
-    printf '{"model": "%s", "num_ctx": %s}\n' "$MODEL" "$NUM_CTX" >"$RUN/local-llm.json"
-    preload ;;
-  *) sed -n '2,8p' "$0"; exit 1 ;;
+    llm status
+    [[ -f $RUN/next.pid ]] && kill -0 "$(cat "$RUN/next.pid")" 2>/dev/null && echo "next dev: running" || echo "next dev: stopped" ;;
+  model)   shift; llm model "$@" ;;
+  *)       sed -n '2,7p' "$0"; exit 1 ;;
 esac

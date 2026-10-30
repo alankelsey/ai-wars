@@ -1,13 +1,5 @@
 {
   "mcpServers": {
-    "local-llm": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--script",
-        "tools/local-llm-mcp/server.py"
-      ]
-    },
     "playwright": {
       "command": "npx",
       "args": [

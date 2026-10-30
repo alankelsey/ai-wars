@@ -26,10 +26,10 @@ jobs:
 
       - run: npm test
 
-      - uses: astral-sh/setup-uv@v6
-
-      - run: npm run test:tools
+      - run: git clone --depth 1 https://github.com/alankelsey/local-llm-kit /tmp/local-llm-kit
 
       - run: npm run codemap:check
+        env:
+          LOCAL_LLM_KIT: /tmp/local-llm-kit
 
       - run: npm run build
