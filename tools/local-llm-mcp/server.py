@@ -23,7 +23,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 from codemap import build_codemap
-from guards import EDIT_RE, FILE_RE, round_problems, shrink_refusal, trim_conventions, untouched_anchors
+from guards import EDIT_RE, FILE_RE, malformed_blocks, round_problems, shrink_refusal, stray_tags, trim_conventions, untouched_anchors
 from escalation import (
     ESCALATE,
     ESCALATE_BUDGET_USD,
@@ -40,6 +40,8 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 # 256k context: ~60 GB for qwen3-coder-next over both R9700s.
 DEFAULT_MODEL = "qwen3-coder-next:q4_K_M"
 DEFAULT_NUM_CTX = 262144
+DEFAULT_FALLBACK_MODEL = "qwen3.5:122b-a10b"
+FALLBACK_ROUNDS = 3
 NUM_PREDICT = int(os.environ.get("LOCAL_NUM_PREDICT", "16384"))
 TIMEOUT_S = float(os.environ.get("LOCAL_TIMEOUT_S", "1200"))
 # ~4 chars/token: 600k chars of context files is ~150k tokens, leaving room for output in a 256k window.
@@ -66,9 +68,10 @@ SETTINGS_FILE = ROOT / ".dev" / "local-llm.json"
 
 
 def _settings(path: Path | None = None) -> dict:
-    """{"model": str, "num_ctx": int}: SETTINGS_FILE (or `path`), then env LOCAL_MODEL/LOCAL_NUM_CTX, then defaults."""
+    """{"model", "num_ctx", "fallback_model"}: SETTINGS_FILE (or `path`), then env LOCAL_MODEL/LOCAL_NUM_CTX/LOCAL_FALLBACK_MODEL, then defaults ("" = no fallback)."""
     model = os.environ.get("LOCAL_MODEL", DEFAULT_MODEL)
     num_ctx_str = os.environ.get("LOCAL_NUM_CTX", str(DEFAULT_NUM_CTX))
+    fallback_model = os.environ.get("LOCAL_FALLBACK_MODEL", DEFAULT_FALLBACK_MODEL)
     try:
         num_ctx = int(num_ctx_str)
     except ValueError:
@@ -79,6 +82,8 @@ def _settings(path: Path | None = None) -> dict:
         try:
             data = json.loads(p.read_text())
             if isinstance(data, dict):
+                if isinstance(data.get("fallback_model"), str):
+                    fallback_model = data["fallback_model"]
                 if "model" in data and isinstance(data["model"], str) and data["model"]:
                     model = data["model"]
                 if "num_ctx" in data:
@@ -93,7 +98,7 @@ def _settings(path: Path | None = None) -> dict:
         except (json.JSONDecodeError, OSError, ValueError, TypeError):
             pass
 
-    return {"model": model, "num_ctx": num_ctx}
+    return {"model": model, "num_ctx": num_ctx, "fallback_model": fallback_model}
 
 
 mcp = FastMCP("local-llm")
@@ -210,10 +215,11 @@ def _chat(
     fmt: dict | None = None,
     temperature: float = 0.3,
     num_predict: int = NUM_PREDICT,
+    model: str | None = None,
 ) -> dict:
     s = _settings()
     body = {
-        "model": s["model"],
+        "model": model or s["model"],
         "stream": False,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "options": {
@@ -250,7 +256,7 @@ def _stats(data: dict) -> str:
     eval_s = data.get("eval_duration", 0) / 1e9 or 1
     truncated = " TRUNCATED (hit num_predict)" if data.get("done_reason") == "length" else ""
     return (
-        f"model={s['model']} wall={data.get('_wall_s', 0)}s in={in_tok}tok out={out_tok}tok "
+        f"model={data.get('model') or s['model']} wall={data.get('_wall_s', 0)}s in={in_tok}tok out={out_tok}tok "
         f"({out_tok / eval_s:.1f} tok/s){truncated}"
     )
 
@@ -262,7 +268,7 @@ def _metric(kind: str, data: dict, extra: dict | None = None) -> None:
     row = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "kind": kind,
-        "model": s["model"],
+        "model": data.get("model") or s["model"],
         "in_tok": data.get("prompt_eval_count", 0),
         "out_tok": data.get("eval_count", 0),
         "wall_s": data.get("_wall_s", 0),
@@ -284,6 +290,7 @@ def local_code(
     target_files: list[str],
     context_files: list[str] | None = None,
     allow_other_files: bool = False,
+    model: str | None = None,
 ) -> str:
     """Have the local LLM write or edit files in the repo.
 
@@ -291,6 +298,7 @@ def local_code(
     target_files: repo-relative paths the model may create/change (current contents are sent).
     context_files: extra repo-relative files to show read-only (types, specs, neighbours).
     allow_other_files: if False, files outside target_files are skipped and reported.
+    model: Ollama model for this call (default: the configured model).
     The model may answer with whole files, search/replace edits, or <need> requests for more files
     (fetched automatically, up to MAX_NEED_ROUNDS times).
     Returns a summary (files written, edits applied/failed, model notes, log path) — not the code.
@@ -301,7 +309,7 @@ def local_code(
     fetched: list[str] = []
     for _ in range(MAX_NEED_ROUNDS + 1):
         prompt = _code_prompt(task, target_files, context_files)
-        data = _chat(CODE_SYSTEM, prompt)
+        data = _chat(CODE_SYSTEM, prompt, model=model)
         log = _log("code", prompt, data)
         content = data.get("message", {}).get("content", "")
         needs = [n for n in NEED_RE.findall(content) if n not in context_files and n not in target_files]
@@ -329,6 +337,9 @@ def local_code(
         lines.append("EDITS FAILED (search text not found once): " + "; ".join(result["edit_failed"]))
     if result["refused"]:
         lines.append("REFUSED: " + "; ".join(result["refused"]))
+    bad = malformed_blocks(content)
+    if bad:
+        lines.append(bad)
     touched = {w.split(" ")[0] for w in result["written"] + result["edited"]}
     missing = [t for t in target_files if t not in touched]
     if missing:
@@ -414,8 +425,9 @@ def _apply_output(content: str, target_files: list[str], allow_other_files: bool
         p = check(rel)
         if p is None:
             continue
+        old_text = p.read_text(errors="replace") if p.is_file() else ""
         new_text = body.rstrip("\n") + "\n"
-        refusal = shrink_refusal(rel, p.read_text(errors="replace"), new_text) if p.is_file() else None
+        refusal = (shrink_refusal(rel, old_text, new_text) if p.is_file() else None) or stray_tags(rel, old_text, new_text)
         if refusal:
             res["refused"].append(refusal)
             continue
@@ -443,7 +455,12 @@ def _apply_output(content: str, target_files: list[str], allow_other_files: bool
                 first = search.strip().splitlines()[0][:80] if search.strip() else ""
                 res["edit_failed"].append(f"{rel}: search matched {n}x, starts '{first}'")
                 continue
-        p.write_text(text.replace(search, replace, 1))
+        new_text = text.replace(search, replace, 1)
+        refusal = stray_tags(rel, text, new_text)
+        if refusal:
+            res["refused"].append(refusal)
+            continue
+        p.write_text(new_text)
         edit_counts[rel] = edit_counts.get(rel, 0) + 1
     res["edited"] = [f"{rel} ({n} edit{'s' if n > 1 else ''})" for rel, n in edit_counts.items()]
     return res
@@ -542,6 +559,52 @@ def _checks_with_tooling(
     return False, tooling + ("\n\n" + errors if errors else "")
 
 
+def _fix_rounds(
+    task: str,
+    target_files: list[str],
+    context_files: list[str] | None,
+    checks: list[str],
+    test_filter: list[str],
+    anchors: list[str],
+    originals: dict[str, str],
+    report: str,
+    rounds: range,
+    model: str | None,
+    log: list[str],
+    history: list[str],
+) -> tuple[str, str, str]:
+    """Check/fix loop over `rounds` with `model` (None = configured); returns (status, errors, last report)."""
+    prev_sig: frozenset[str] | None = None
+    errors = ""
+    for rnd in rounds:
+        ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
+        if ok:
+            log.append(f"round {rnd}: all checks pass ({', '.join(checks)})")
+            return "PASSED", errors, report
+        sig = _error_signature(errors)
+        if prev_sig is not None and sig == prev_sig:
+            log.append(f"round {rnd}: same failures as last round; stopping")
+            return "STUCK (same failures two rounds in a row)", errors, report
+        prev_sig = sig
+        earlier = (
+            "\n\nEarlier rounds (your previous fixes did NOT solve these; try a different approach):\n"
+            + "\n".join(history[-3:])
+            if history
+            else ""
+        )
+        fix_task = (
+            f"{task}\n\n---\nThe target files currently fail these checks. Fix the root cause, using <edit> blocks "
+            f"for small changes. Do not weaken or delete tests unless the test contradicts the spec (then say so "
+            f"in <notes>). Add any missing imports.{earlier}\n\nCurrent failures (round {rnd}):\n{errors}"
+        )
+        report = local_code(fix_task, target_files, context_files, model=model)
+        notes = report.split("notes: ", 1)[-1].split("\nlog: ")[0][:400]
+        history.append(f"- round {rnd}: {len(sig)} failing lines, e.g. {sorted(sig)[:3]}; your notes: {notes}")
+        log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n{report}")
+    ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
+    return ("PASSED" if ok else "STILL FAILING after max_rounds"), errors, report
+
+
 def _escalate(task: str, target_files: list[str], errors: str) -> dict:
     """Hand the remaining failures to Claude Code and parse its response."""
     before = _git_changed()
@@ -570,6 +633,7 @@ def local_iterate(
     test_filter: list[str] | None = None,
     skip_first_write: bool = False,
     anchors: list[str] | None = None,
+    fallback: bool = True,
     escalate: bool = True,
 ) -> str:
     """Write files with the local LLM, then loop: run checks, feed failures back, fix — until green.
@@ -578,6 +642,7 @@ def local_iterate(
     skip_first_write: True to start by checking the files already on disk (fix-only mode).
     anchors: "path: exact existing line" spots the task must change; a round fails while one is untouched,
     and so does a round whose edits failed to apply or whose whole-file write was refused.
+    fallback: on STUCK / STILL FAILING, give the configured fallback model FALLBACK_ROUNDS more rounds first.
     escalate: on STUCK / STILL FAILING, hand the remaining failures to Claude Code (claude -p) once, then re-check.
     Each fix round sees the earlier rounds' errors and notes. If the same failure comes back twice in a row,
     the loop stops early with STUCK so Claude can step in instead of burning rounds.
@@ -589,44 +654,27 @@ def local_iterate(
     report = ""
     log: list[str] = []
     history: list[str] = []
-    prev_sig: frozenset[str] | None = None
+
     t0 = time.time()
     if not skip_first_write:
         report = local_code(task, target_files, context_files)
         log.append("round 0 (write):\n" + report)
-    status, errors = "STILL FAILING after max_rounds", ""
-    for rnd in range(1, max_rounds + 1):
-        ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
-        if ok:
-            status = "PASSED"
-            log.append(f"round {rnd}: all checks pass ({', '.join(checks)})")
-            break
-        sig = _error_signature(errors)
-        if prev_sig is not None and sig == prev_sig:
-            status = "STUCK (same failures two rounds in a row)"
-            log.append(f"round {rnd}: same failures as last round; stopping")
-            break
-        prev_sig = sig
-        earlier = (
-            "\n\nEarlier rounds (your previous fixes did NOT solve these; try a different approach):\n"
-            + "\n".join(history[-3:])
-            if history
-            else ""
-        )
-        fix_task = (
-            f"{task}\n\n---\nThe target files currently fail these checks. Fix the root cause, using <edit> blocks "
-            f"for small changes. Do not weaken or delete tests unless the test contradicts the spec (then say so "
-            f"in <notes>). Add any missing imports.{earlier}\n\nCurrent failures (round {rnd}):\n{errors}"
-        )
-        out = local_code(fix_task, target_files, context_files)
-        report = out
-        notes = out.split("notes: ", 1)[-1].split("\nlog: ")[0][:400]
-        history.append(f"- round {rnd}: {len(sig)} failing lines, e.g. {sorted(sig)[:3]}; your notes: {notes}")
-        log.append(f"round {rnd}: failures\n{errors[:1500]}\n-- fix:\n{out}")
-    else:
-        ok, errors = _checks_with_tooling(checks, test_filter, report, anchors, originals)
-        if ok:
-            status = "PASSED"
+    status, errors, report = _fix_rounds(
+        task, target_files, context_files, checks, test_filter, anchors, originals, report,
+        range(1, max_rounds + 1), None, log, history,
+    )
+    s = _settings()
+    fb = s.get("fallback_model", "")
+    if not status.startswith("PASSED") and fallback and fb and fb != s["model"]:
+        log.append(f"fallback: {status} with {s['model']}; handing over to {fb}")
+        try:
+            fb_status, errors, report = _fix_rounds(
+                task, target_files, context_files, checks, test_filter, anchors, originals, report,
+                range(max_rounds + 1, max_rounds + 1 + FALLBACK_ROUNDS), fb, log, history,
+            )
+            status = f"PASSED (fallback model {fb})" if fb_status == "PASSED" else f"{fb_status} (also with {fb})"
+        except httpx.HTTPError as e:
+            log.append(f"fallback failed ({fb}): {e}")
     if not status.startswith("PASSED") and escalate and ESCALATE:
         esc = _escalate(task, target_files, errors)
         ok, errors = _checks_with_tooling(checks, test_filter, "", anchors, originals)
@@ -787,8 +835,12 @@ def local_status() -> str:
         models = [f"ollama unreachable at {OLLAMA_URL}: {e}"]
     vram = "\n".join(_vram_lines()) or "(no amdgpu VRAM counters found)"
     s = _settings()
+    fb = s.get("fallback_model") or "off"
     state = "present" if SETTINGS_FILE.exists() else "absent"
-    return f"configured model: {s['model']} num_ctx={s['num_ctx']}\nsettings: {SETTINGS_FILE} ({state})\n" + "\n".join(models) + "\n" + vram
+    return (
+        f"configured model: {s['model']} num_ctx={s['num_ctx']} fallback={fb}\nsettings: {SETTINGS_FILE} ({state})\n"
+        + "\n".join(models) + "\n" + vram
+    )
 
 
 if __name__ == "__main__":
