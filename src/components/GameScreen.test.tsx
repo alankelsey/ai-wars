@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getCity } from "@/game/data/cities";
 import { CONFIG } from "@/game/data/config";
@@ -70,11 +70,28 @@ describe("new game link", () => {
     expect(link.compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("quits to the start screen with a reset", async () => {
+  it("asks first, then quits to the start screen with a reset", async () => {
     const user = userEvent.setup();
     const dispatch = vi.fn();
     render(<GameScreen game={makeState()} dispatch={dispatch} />);
     await user.click(screen.getByRole("button", { name: "New game" }));
+    expect(dispatch).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", { name: "New game" });
+    expect(within(dialog).getByRole("heading", { name: "Are you sure?" })).toBeTruthy();
+    expect(within(dialog).getByText("Quit this game and start a new one? This run won't count toward high scores.")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Yes, start over" }));
     expect(dispatch).toHaveBeenCalledWith({ type: "reset" });
+  });
+
+  it("Keep playing closes the question and changes nothing", async () => {
+    const user = userEvent.setup();
+    const dispatch = vi.fn();
+    render(<GameScreen game={makeState()} dispatch={dispatch} />);
+    await user.click(screen.getByRole("button", { name: "New game" }));
+    const keep = within(screen.getByRole("dialog", { name: "New game" })).getByRole("button", { name: "Keep playing" });
+    expect(document.activeElement).toBe(keep); // the safe choice has focus
+    await user.click(keep);
+    expect(screen.queryByRole("dialog", { name: "New game" })).toBeNull();
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

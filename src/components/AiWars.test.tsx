@@ -107,6 +107,7 @@ describe("AiWars", () => {
     render(<AiWars seed={SEED} store={store} />);
     await startGame(user);
     await user.click(screen.getByRole("button", { name: "New game" }));
+    await user.click(screen.getByRole("button", { name: "Yes, start over" }));
     expect(screen.getByRole("button", { name: "Start New Game" })).toBeInTheDocument();
     expect(saved).toEqual([]);
   });
