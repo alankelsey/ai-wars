@@ -42,6 +42,9 @@
   color: var(--accent);
 }
 
+.story p { margin: 0; }
+.story p + p { margin-top: 1lh; }
+
 .form {
   display: flex;
   flex-direction: column;

@@ -35,9 +35,10 @@ export function Splash(props: SplashProps): JSX.Element {
       <pre className={styles.title} aria-hidden="true">
 {TITLE}
       </pre>
-      <p className={styles.story}>
-        {`You are an AI tech bro/bae at ${company} trying to outfit your datacenters. You have ${formatMoney(CONFIG.startCash)} and ${CONFIG.days} days to turn a profit before your IPO.`}
-      </p>
+      <div className={styles.story}>
+        <p>{`You are an AI tech bro/bae at ${company} trying to outfit your datacenters. You received ${formatMoney(CONFIG.startDebt)} from a loan shark.`}</p>
+        <p>{`Repay your loan and turn a profit before your IPO. You only have ${CONFIG.days} days.`}</p>
+      </div>
       <form className={styles.form} onSubmit={handleSubmit}>
         <label>
           Company
