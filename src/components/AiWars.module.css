@@ -182,6 +182,12 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 12px;
+}
+
+.statsHead > button,
+.statsHead > span {
+  white-space: nowrap;
 }
 
 .statsHead h2,

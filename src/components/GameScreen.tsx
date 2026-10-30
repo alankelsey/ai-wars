@@ -45,7 +45,7 @@ export function GameScreen({ game, dispatch }: GameScreenProps): JSX.Element {
 
   return (
     <main className={`${styles.screen} ${styles.gameScreen}`}>
-      <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} />
+      <StatsPanel game={game} onOpenDataCenter={() => setBankOpen(true)} onNewGame={() => dispatch({ type: "reset" })} />
       <LastDayBanner game={game} />
       <TipBanners tips={game.tips} day={game.day} />
       <MarketList game={game} onTrade={(chipId, mode) => setTrade({ chipId, mode })} />

@@ -100,6 +100,17 @@ async function playToEnd(user: User): Promise<number> {
 }
 
 describe("AiWars", () => {
+  it("New game mid-game goes back to the start screen without saving a score", async () => {
+    const user = userEvent.setup();
+    const saved: string[] = [];
+    const store: KeyValueStore = { getItem: () => null, setItem: (_k: string, v: string) => { saved.push(v); } };
+    render(<AiWars seed={SEED} store={store} />);
+    await startGame(user);
+    await user.click(screen.getByRole("button", { name: "New game" }));
+    expect(screen.getByRole("button", { name: "Start New Game" })).toBeInTheDocument();
+    expect(saved).toEqual([]);
+  });
+
   it("shows the splash with the story for the chosen company", async () => {
     const user = userEvent.setup();
     render(<AiWars seed={SEED} store={null} />);
